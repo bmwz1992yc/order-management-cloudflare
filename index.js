@@ -88,33 +88,56 @@ async function handleUpdateConfig(request, env) {
                 gemini: { model_name: 'gemini-1.5-flash', api_key: '' }
             }
         };
-        const existingConfig = await getR2Json(env, CONFIG_KEY, defaultConfig);
+        
+        // Get existing config. If it's an old format, we need to migrate it.
+        let currentConfig = await getR2Json(env, CONFIG_KEY, null); // Get raw existing config, or null if not found
 
-        const newConfig = JSON.parse(JSON.stringify(existingConfig));
-
-        newConfig.active_provider = active_provider;
-
-        // Ensure the provider entry exists before trying to update it
-        if (!newConfig.providers[active_provider]) {
-            newConfig.providers[active_provider] = {};
+        // If currentConfig is null or an old flat structure, initialize with defaultConfig
+        if (!currentConfig || !currentConfig.providers) {
+            currentConfig = JSON.parse(JSON.stringify(defaultConfig)); // Start with full default structure
+            // If it was an old flat config, try to migrate its values
+            if (currentConfig.api_provider && currentConfig.providers[currentConfig.api_provider]) {
+                Object.assign(currentConfig.providers[currentConfig.api_provider], {
+                    api_url: currentConfig.api_url,
+                    model_name: currentConfig.model_name,
+                    api_key: currentConfig.api_key
+                });
+                // Remove old flat properties to avoid confusion
+                delete currentConfig.api_provider;
+                delete currentConfig.api_url;
+                delete currentConfig.model_name;
+                delete currentConfig.api_key;
+            }
+        } else {
+            // Ensure existing providers are merged with default ones to pick up new fields if any
+            // This also handles cases where new providers might be added to defaultConfig later
+            currentConfig = { ...defaultConfig, ...currentConfig }; // Shallow merge top-level properties
+            for (const providerKey in defaultConfig.providers) {
+                currentConfig.providers[providerKey] = {
+                    ...defaultConfig.providers[providerKey],
+                    ...(currentConfig.providers[providerKey] || {})
+                };
+            }
         }
 
-        const providerConf = newConfig.providers[active_provider];
+        // Now currentConfig is guaranteed to have the correct structure.
+        // Apply updates from the request.
+        currentConfig.active_provider = active_provider; // This comes from the frontend selection
+
+        const providerConf = currentConfig.providers[active_provider];
         if (providerConf) {
-            // Use !== undefined to allow setting an empty string for the URL
             if (config_data.api_url !== undefined) {
                 providerConf.api_url = config_data.api_url;
             }
             if (config_data.model_name) {
                 providerConf.model_name = config_data.model_name;
             }
-            // Only update API key if a new one is provided (not empty string from input)
-            if (config_data.api_key) {
+            if (config_data.api_key) { // Only update API key if a new one is provided (not empty string from input)
                 providerConf.api_key = config_data.api_key;
             }
         }
 
-        await putR2Json(env, CONFIG_KEY, newConfig);
+        await putR2Json(env, CONFIG_KEY, currentConfig);
 
         return new Response(JSON.stringify({ message: "配置更新成功" }), {
             status: 200,
