@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cloudflare 订单管理系统</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; margin: 20px; background-color: #f4f7f9; color: #333; }
+        .container { max-width: 1200px; margin: auto; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1 { color: #007bff; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        h2 { color: #555; margin-top: 30px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="password"], input[type="file"], input[type="date"], select, button { padding: 10px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #ccc; width: 100%; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; transition: background-color 0.3s; }
+        button:hover { background-color: #0056b3; }
+        .delete-btn { background-color: #dc3545; }
+        .delete-btn:hover { background-color: #c82333; }
+        #resetFilters { background-color: #6c757d; }
+        #resetFilters:hover { background-color: #5a6268; }
+        .config-form { border: 1px solid #ddd; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+        .message { padding: 10px; border-radius: 4px; margin-bottom: 15px; }
+        .success { background-color: #d4edda; color: #155724; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; color: #721c24; border-color: #f5c6cb; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; table-layout: fixed; }
+        th, td { border: 1px solid #ddd; padding: 6px; font-size: 14px; text-align: left; vertical-align: middle; word-wrap: break-word; }
+        th { background-color: #f2f2f2; }
+        .col-order-id { width: 5%; }
+        .col-upload-time { width: 5%; }
+        .col-order-image { width: 10%; }
+        .col-item-detail { width: 5%; }
+        .col-medium { width: 10%; }
+        .col-small-medium { width: 7%; }
+        td.editable { cursor: pointer; }
+        td.editing { padding: 0; }
+        td.editing input { width: 100%; height: 100%; border: 2px solid #007bff; box-sizing: border-box; padding: 8px; }
+        .actions { display: flex; gap: 10px; margin-bottom: 20px; }
+        .actions button { flex: 1; }
+        .hidden { display: none; }
+        .api-key-warning { background-color: #fff3cd; color: #856404; border-color: #ffeaa7; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+        #controls { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; align-items: flex-end; }
+        .control-group { display: flex; flex-direction: column; flex: 1 1 220px; min-width: 220px; }
+        .control-group label { margin-bottom: 5px; }
+        .control-group input, .control-group select, .control-group button, .select-box { margin-bottom: 0; width: 100%; }
+        .date-range-group { display: flex; align-items: center; gap: 5px; }
+        .date-range-group input { flex: 1; }
+        .date-range-group span { flex-shrink: 0; }
+
+        /* Custom Multiselect */
+        .multiselect { position: relative; user-select: none; width: 100%; }
+        .select-box { border: 1px solid #ccc; border-radius: 4px; padding: 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; }
+        .checkboxes-container { position: absolute; z-index: 10; display: none; border: 1px solid #ddd; background-color: white; width: 100%; max-height: 200px; overflow-y: auto; box-sizing: border-box; }
+        .checkboxes-container label { display: flex; align-items: center; padding: 8px 12px; cursor: pointer; }
+        .checkboxes-container label:hover { background-color: #f2f2f2; }
+        .checkboxes-container input[type="checkbox"] { margin-right: 8px; width: auto; height: auto; }
+
+        /* Right-aligned Image Lightbox */
+        #image-lightbox {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 2000;
+            display: none;
+            justify-content: flex-end; /* Align content to the right */
+            align-items: center;
+            padding: 5vh 5vw;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+        #image-lightbox img {
+            max-width: 55vw;
+            max-height: 99vh;
+            border: 3px solid white;
+            border-radius: 5px;
+            cursor: default;
+        }
+        #image-lightbox-close {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>订单管理系统 (R2 + AI 识别)</h1>
+    <div id="statusMessage" class="message hidden"></div>
+
+    <div class="api-key-warning">
+        <strong>安全提醒：</strong>API 密钥将以纯文本形式存储在您的 R2 存储桶中。请确保只有受信任的人员可以访问此页面和您的 Cloudflare 账户。
+    </div>
+
+    <h2 id="toggleConfig" style="cursor: pointer;">▶ 大模型 API 配置</h2>
+    <div id="configContent" class="hidden"> 
+        <div class="config-form">
+            <form id="configForm">
+                <label for="apiProvider">服务商</label>
+                <select id="apiProvider">
+                    <option value="openai">OpenAI 兼容</option>
+                    <option value="gemini">Google Gemini</option>
+                </select>
+
+                <div id="apiUrlContainer">
+                    <label for="apiUrl">服务商 URL 地址</label>
+                    <input type="text" id="apiUrl" required placeholder="例如: https://api.openai.com/v1/chat/completions">
+                </div>
+                
+                <label for="modelName">大模型名称</label>
+                <input type="text" id="modelName" required placeholder="例如: gpt-4o-mini 或 gemini-1.5-flash">
+                
+                <label for="apiKey">API 密钥 (输入新密钥以更新)</label>
+                <input type="password" id="apiKey" placeholder="若不更新请留空">
+                
+                <button type="submit">保存配置</button>
+            </form>
+        </div>
+    </div>
+
+    <h2>订单上传与识别</h2>
+    <form id="uploadForm">
+        <label for="orderImage">上传手写订单照片 (兼容手机拍照)</label>
+        <input type="file" id="orderImage" name="orderImage" accept="image/*" capture="camera" required>
+        
+        <button type="submit" id="uploadButton">上传并识别订单</button>
+    </form>
+
+    <h2>所有订单</h2>
+    <div class="actions">
+        <button onclick="fetchOrders()">刷新订单列表</button>
+        <button onclick="filterByDateRange(0, 0)">今天订单</button>
+        <button onclick="filterByDateRange(1, 1)">昨天订单</button>
+        <button onclick="filterByDateRange(2, 2)">前天订单</button>
+        <button onclick="filterByDateRange(4, 0)">最近5天订单</button>
+        <button onclick="exportOrders()">导出为 Excel (CSV)</button>
+        <button onclick="exportToHtml()">导出为 HTML</button>
+    </div>
+    
+    <div id="controls">
+
+        <div class="control-group">
+            <label>客户筛选</label>
+            <div id="customer-multiselect" class="multiselect">
+                <div class="select-box">
+                    <span id="selected-customers-text">选择客户...</span>
+                </div>
+                <div id="customer-checkboxes" class="checkboxes-container"></div>
+            </div>
+        </div>
+        <div class="control-group">
+            <label>订单日期范围</label>
+            <div class="date-range-group">
+                <input type="date" id="orderDateStart" title="订单日期开始">
+                <span>-</span>
+                <input type="date" id="orderDateEnd" title="订单日期结束">
+            </div>
+        </div>
+        <div class="control-group">
+            <label>上传日期范围</label>
+            <div class="date-range-group">
+                <input type="date" id="uploadDateStart" title="上传日期开始">
+                <span>-</span>
+                <input type="date" id="uploadDateEnd" title="上传日期结束">
+            </div>
+        </div>
+        <div class="control-group">
+            <label>&nbsp;</label>
+            <button id="resetFilters">重置筛选</button>
+        </div>
+    </div>
+
+    <table id="ordersTable">
+        <colgroup>
+            <col class="col-order-id">
+            <col class="col-small-medium"> <!-- 客户名称 -->
+            <col class="col-item-detail"> <!-- 货物名称 -->
+            <col class="col-item-detail"> <!-- 单位 -->
+            <col class="col-item-detail"> <!-- 数量 -->
+            <col class="col-item-detail"> <!-- 单价 -->
+            <col class="col-item-detail"> <!-- 金额 -->
+            <col class="col-small-medium"> <!-- 订单总额 -->
+            <col class="col-medium"> <!-- 订单日期 -->
+            <col class="col-upload-time">
+            <col class="col-order-image">
+            <col class="col-item-detail"> <!-- 操作 -->
+        </colgroup>
+        <thead>
+            <tr>
+                <th rowspan="2">订单 ID</th>
+                <th rowspan="2">客户名称</th>
+                <th colspan="5">货物详情</th>
+                <th rowspan="2">订单总额</th>
+                <th rowspan="2">订单日期</th>
+                <th rowspan="2">上传时间</th>
+                <th rowspan="2">订单图片</th>
+                <th rowspan="2">操作</th>
+            </tr>
+            <tr>
+                <th>货物名称</th>
+                <th>单位</th>
+                <th>数量</th>
+                <th>单价</th>
+                <th>金额</th>
+            </tr>
+        </thead>
+        <tbody>
+        </tbody>
+    </table>
+</div>
+
+<div id="image-lightbox" onclick="this.style.display='none'">
+    <span id="image-lightbox-close">&times;</span>
+    <img src="" onclick="event.stopPropagation()">
+</div>
+
+<script>
+    // --- 全局状态 ---
+    let allOrders = [];
+
+    // --- DOM 元素 ---
+    const apiUrlInput = document.getElementById('apiUrl');
+    const modelNameInput = document.getElementById('modelName');
+    const apiKeyInput = document.getElementById('apiKey');
+    const configForm = document.getElementById('configForm');
+    const uploadForm = document.getElementById('uploadForm');
+    const ordersTableBody = document.querySelector('#ordersTable tbody');
+    const statusMessage = document.getElementById('statusMessage');
+    const apiProviderSelect = document.getElementById('apiProvider');
+    const apiUrlContainer = document.getElementById('apiUrlContainer');
+    
+    // 筛选和排序控件
+    const customerMultiselect = document.getElementById('customer-multiselect');
+    const customerCheckboxes = document.getElementById('customer-checkboxes');
+    const selectedCustomersText = document.getElementById('selected-customers-text');
+    const orderDateStartInput = document.getElementById('orderDateStart');
+    const orderDateEndInput = document.getElementById('orderDateEnd');
+    const uploadDateStartInput = document.getElementById('uploadDateStart');
+    const uploadDateEndInput = document.getElementById('uploadDateEnd');
+    const resetFiltersButton = document.getElementById('resetFilters');
+
+    // --- 事件监听 ---
+
+    document.getElementById('toggleConfig').addEventListener('click', () => {
+        const content = document.getElementById('configContent');
+        const toggle = document.getElementById('toggleConfig');
+        const isHidden = content.classList.toggle('hidden');
+        toggle.textContent = isHidden ? '▶ 大模型 API 配置' : '▼ 大模型 API 配置';
+    });
+
+    apiProviderSelect.addEventListener('change', () => {
+        if (apiProviderSelect.value === 'gemini') {
+            apiUrlContainer.classList.add('hidden');
+            apiUrlInput.required = false;
+        } else {
+            apiUrlContainer.classList.remove('hidden');
+            apiUrlInput.required = true;
+        }
+    });
+
+    configForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        try {
+            const newConfig = { api_provider: apiProviderSelect.value, api_url: apiUrlInput.value, model_name: modelNameInput.value, api_key: apiKeyInput.value };
+            const response = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+            if (!response.ok) throw new Error('保存失败');
+            showMessage('API 配置保存成功！', 'success');
+            apiKeyInput.value = '';
+        } catch (error) {
+            console.error('配置保存失败:', error);
+            showMessage('保存配置失败。', 'error');
+        }
+    });
+
+    uploadForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const uploadButton = document.getElementById('uploadButton');
+        uploadButton.disabled = true;
+        uploadButton.textContent = '正在上传并识别中...请勿关闭';
+        try {
+            const formData = new FormData(uploadForm);
+            const response = await fetch('/api/upload', { method: 'POST', body: formData });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.details || result.error || '识别失败');
+            showMessage(`订单识别成功！订单ID: ${result.data.order_id}`, 'success');
+            await fetchOrders();
+        } catch (error) {
+            console.error('上传或识别失败:', error);
+            showMessage(`上传/识别失败: ${error.message}`, 'error');
+        } finally {
+            uploadButton.disabled = false;
+            uploadButton.textContent = '上传并识别订单';
+            uploadForm.reset();
+        }
+    });
+
+    ordersTableBody.addEventListener('dblclick', (e) => {
+        const cell = e.target.closest('td.editable');
+        if (!cell || cell.classList.contains('editing')) return;
+
+        const originalValue = cell.textContent;
+        const orderId = cell.dataset.orderId;
+        const field = cell.dataset.field;
+        const itemIndex = cell.dataset.itemIndex;
+        const itemField = cell.dataset.itemField;
+
+        cell.classList.add('editing');
+        cell.innerHTML = `<input type="text" value="${originalValue}" />`;
+        const input = cell.querySelector('input');
+        input.focus();
+
+        const saveEdit = async () => {
+            const newValue = input.value;
+            cell.classList.remove('editing');
+            cell.innerHTML = originalValue;
+
+            if (newValue !== originalValue) {
+                try {
+                    await updateOrderData(orderId, field, newValue, itemIndex, itemField);
+                    cell.innerHTML = newValue;
+                    showMessage('更新成功!', 'success');
+                    if (['quantity', 'unit_price', 'amount', 'total_amount'].includes(field) || ['quantity', 'unit_price', 'amount'].includes(itemField)) {
+                        fetchOrders();
+                    }
+                } catch (err) {
+                    showMessage(`更新失败: ${err.message}`, 'error');
+                }
+            }
+        };
+
+        input.addEventListener('blur', saveEdit);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') input.blur();
+            if (e.key === 'Escape') { cell.classList.remove('editing'); cell.innerHTML = originalValue; }
+        });
+    });
+
+    ordersTableBody.addEventListener('click', (e) => {
+        // Image click for lightbox
+        const img = e.target.closest('.col-order-image img');
+        if (img) {
+            e.preventDefault();
+            const lightbox = document.getElementById('image-lightbox');
+            lightbox.querySelector('img').src = img.src;
+            lightbox.style.display = 'flex';
+            return;
+        }
+
+        // Delete button click
+        const deleteButton = e.target.closest('.delete-btn');
+        if (deleteButton) {
+            const orderId = deleteButton.dataset.orderId;
+            if (confirm(`确定要删除订单 ${orderId} 吗？此操作不可撤销。`)) {
+                deleteOrder(orderId);
+            }
+        }
+    });
+
+    // --- Filter/Sort Listeners ---
+    [orderDateStartInput, orderDateEndInput, uploadDateStartInput, uploadDateEndInput].forEach(el => {
+        el.addEventListener('change', renderOrders);
+    });
+
+    customerMultiselect.querySelector('.select-box').addEventListener('click', () => {
+        customerCheckboxes.style.display = customerCheckboxes.style.display === 'block' ? 'none' : 'block';
+    });
+
+    customerCheckboxes.addEventListener('change', renderOrders);
+
+    document.addEventListener('click', function(e) {
+        if (!customerMultiselect.contains(e.target)) {
+            customerCheckboxes.style.display = 'none';
+        }
+    });
+
+    resetFiltersButton.addEventListener('click', () => {
+        customerCheckboxes.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
+        orderDateStartInput.value = '';
+        orderDateEndInput.value = '';
+        uploadDateStartInput.value = '';
+        uploadDateEndInput.value = '';
+        renderOrders();
+    });
+
+    // --- 核心函数 ---
+
+    function showMessage(msg, type = 'success') {
+        statusMessage.textContent = msg;
+        statusMessage.className = `message ${type}`;
+        statusMessage.classList.remove('hidden');
+        setTimeout(() => { statusMessage.classList.add('hidden'); }, 7000);
+    }
+
+    async function loadConfig() {
+        try {
+            const response = await fetch('/api/config');
+            if (!response.ok) throw new Error('加载配置失败');
+            const config = await response.json();
+            apiProviderSelect.value = config.api_provider || 'openai';
+            apiUrlInput.value = config.api_url || '';
+            modelNameInput.value = config.model_name || '';
+            apiProviderSelect.dispatchEvent(new Event('change'));
+        } catch (error) {
+            console.error('配置加载失败:', error);
+            showMessage('初始化配置失败，请手动填写并保存。', 'error');
+        }
+    }
+
+    async function fetchOrders() {
+        ordersTableBody.innerHTML = '<tr><td colspan="12">正在加载订单...</td></tr>';
+        try {
+            const response = await fetch('/api/orders');
+            if (!response.ok) throw new Error('加载订单列表失败');
+            allOrders = await response.json();
+            populateCustomerFilter();
+            renderOrders();
+            showMessage(`成功加载 ${allOrders.length} 条原始订单记录。`, 'success');
+        } catch (error) {
+            console.error('获取订单列表失败:', error);
+            ordersTableBody.innerHTML = '<tr><td colspan="12" class="error">加载订单数据失败。</td></tr>';
+            showMessage('加载订单列表失败。', 'error');
+        }
+    }
+
+    function populateCustomerFilter() {
+        const customerNames = [...new Set(allOrders.map(o => o.customer_name).filter(Boolean))].sort();
+        customerCheckboxes.innerHTML = '';
+        customerNames.forEach(name => {
+            const label = document.createElement('label');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = name;
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(' ' + name));
+            customerCheckboxes.appendChild(label);
+        });
+    }
+
+    function renderOrders() {
+        let processedOrders = [...allOrders];
+
+        // 1. Filtering
+        const selectedCustomers = Array.from(customerCheckboxes.querySelectorAll('input:checked')).map(c => c.value);
+        if (selectedCustomers.length > 0) {
+            processedOrders = processedOrders.filter(order => selectedCustomers.includes(order.customer_name));
+            selectedCustomersText.textContent = `${selectedCustomers.length} 个客户已选择`;
+        } else {
+            selectedCustomersText.textContent = '选择客户...';
+        }
+
+        const orderDateStart = orderDateStartInput.value;
+        const orderDateEnd = orderDateEndInput.value;
+        if (orderDateStart) {
+            processedOrders = processedOrders.filter(order => order.order_date >= orderDateStart);
+        }
+        if (orderDateEnd) {
+            processedOrders = processedOrders.filter(order => order.order_date <= orderDateEnd);
+        }
+
+        const uploadDateStart = uploadDateStartInput.value;
+        const uploadDateEnd = uploadDateEndInput.value;
+        if (uploadDateStart) {
+            processedOrders = processedOrders.filter(order => order.upload_date.substring(0, 10) >= uploadDateStart);
+        }
+        if (uploadDateEnd) {
+            processedOrders = processedOrders.filter(order => order.upload_date.substring(0, 10) <= uploadDateEnd);
+        }
+
+        // 2. Rendering
+        ordersTableBody.innerHTML = '';
+        if (processedOrders.length === 0) {
+            ordersTableBody.innerHTML = '<tr><td colspan="12">无匹配的订单数据。</td></tr>';
+            return;
+        }
+
+        processedOrders.forEach(order => {
+            const items = order.items && order.items.length > 0 ? order.items : [{ name: '(无货物)' }];
+            const rowCount = items.length;
+
+            items.forEach((item, index) => {
+                const row = ordersTableBody.insertRow();
+
+                if (index === 0) {
+                    let idCell = row.insertCell();
+                    idCell.rowSpan = rowCount;
+                    idCell.textContent = order.order_id;
+
+                    let nameCell = row.insertCell();
+                    nameCell.rowSpan = rowCount;
+                    nameCell.textContent = order.customer_name;
+                    nameCell.classList.add('editable');
+                    nameCell.dataset.orderId = order.order_id;
+                    nameCell.dataset.field = 'customer_name';
+                }
+
+                const itemFields = ['name', 'unit', 'quantity', 'unit_price', 'amount'];
+                itemFields.forEach(itemField => {
+                    const cell = row.insertCell();
+                    cell.textContent = item[itemField] != null ? item[itemField] : '';
+                    cell.classList.add('editable');
+                    cell.dataset.orderId = order.order_id;
+                    cell.dataset.field = 'items';
+                    cell.dataset.itemIndex = index;
+                    cell.dataset.itemField = itemField;
+                });
+
+                if (index === 0) {
+                    const postItemFields = ['total_amount', 'order_date', 'upload_date', 'image_r2_key', 'actions'];
+                    postItemFields.forEach(field => {
+                        const cell = row.insertCell();
+                        cell.rowSpan = rowCount;
+
+                        switch (field) {
+                            case 'total_amount':
+                                cell.textContent = order.total_amount != null ? order.total_amount.toFixed(2) : '';
+                                cell.classList.add('editable');
+                                cell.dataset.orderId = order.order_id;
+                                cell.dataset.field = field;
+                                break;
+                            case 'order_date':
+                                cell.textContent = order.order_date || '';
+                                cell.classList.add('editable');
+                                cell.dataset.orderId = order.order_id;
+                                cell.dataset.field = field;
+                                break;
+                            case 'upload_date':
+                                cell.textContent = new Date(order.upload_date).toLocaleString();
+                                break;
+                            case 'image_r2_key':
+                                cell.classList.add('col-order-image');
+                                if (order.image_r2_key) {
+                                    const img = document.createElement('img');
+                                    img.src = `/api/images/${order.image_r2_key}`;
+                                    img.style.cssText = 'width: 100%; height: auto; display: block; cursor: pointer;';
+                                    cell.appendChild(img);
+                                }
+                                break;
+                            case 'actions':
+                                const deleteButton = document.createElement('button');
+                                deleteButton.textContent = '删除';
+                                deleteButton.className = 'delete-btn';
+                                deleteButton.dataset.orderId = order.order_id;
+                                cell.appendChild(deleteButton);
+                                break;
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    async function updateOrderData(order_id, field, value, item_index = null, item_field = null) {
+        const payload = { order_id, field, value };
+        if (item_index != null) payload.item_index = parseInt(item_index, 10);
+        if (item_field != null) payload.item_field = item_field;
+
+        const response = await fetch('/api/order/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const result = await response.json();
+            throw new Error(result.details || result.error || '更新失败');
+        }
+    }
+
+    async function deleteOrder(order_id) {
+        try {
+            const response = await fetch('/api/order/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ order_id })
+            });
+            if (!response.ok) {
+                const result = await response.json();
+                throw new Error(result.details || result.error || '删除失败');
+            }
+            showMessage('订单删除成功!', 'success');
+            fetchOrders();
+        } catch (error) {
+            console.error('删除订单失败:', error);
+            showMessage(`删除失败: ${error.message}`, 'error');
+        }
+    }
+
+    function exportOrders() {
+        window.open('/api/export', '_blank');
+        showMessage('正在生成并下载 CSV 文件...', 'success');
+    }
+
+    function filterByDateRange(daysAgoStart, daysAgoEnd) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - daysAgoStart);
+
+        const endDate = new Date(today);
+        endDate.setDate(today.getDate() - daysAgoEnd);
+
+        const formatDate = (date) => date.toISOString().split('T')[0];
+
+        orderDateStartInput.value = formatDate(startDate);
+        orderDateEndInput.value = formatDate(endDate);
+
+        renderOrders();
+    }
+
+    function exportToHtml() {
+        const params = new URLSearchParams();
+        
+        const selectedCustomers = Array.from(customerCheckboxes.querySelectorAll('input:checked')).map(c => c.value);
+        selectedCustomers.forEach(c => params.append('customer', c));
+
+        if (orderDateStartInput.value) params.set('orderDateStart', orderDateStartInput.value);
+        if (orderDateEndInput.value) params.set('orderDateEnd', orderDateEndInput.value);
+        if (uploadDateStartInput.value) params.set('uploadDateStart', uploadDateStartInput.value);
+        if (uploadDateEndInput.value) params.set('uploadDateEnd', uploadDateEndInput.value);
+
+        const queryString = params.toString();
+        window.open(`/api/export-html?${queryString}`, '_blank');
+    }
+
+    window.onload = () => {
+        loadConfig();
+        fetchOrders();
+    };
+</script>
+
+</body>
+</html>

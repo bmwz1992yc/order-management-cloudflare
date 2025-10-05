@@ -1,0 +1,22 @@
+{
+  "name": "order-management-cloudflare",
+  "version": "1.0.0",
+  "description": "A Cloudflare Workers-based order management system with AI recognition",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "r2",
+    "order-management",
+    "ai"
+  ],
+  "author": "CloudFlower Workers Developer",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
+  }
+}

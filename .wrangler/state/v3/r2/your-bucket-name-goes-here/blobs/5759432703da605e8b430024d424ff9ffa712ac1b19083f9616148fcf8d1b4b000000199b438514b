@@ -1,0 +1,99 @@
+[
+  {
+    "order_id": "OD-1759659075747",
+    "customer_name": "陈静",
+    "items": [
+      {
+        "name": "4x6",
+        "unit": "件",
+        "quantity": 1,
+        "unit_price": 17,
+        "amount": 17
+      },
+      {
+        "name": "2.4x1.88",
+        "unit": "寸",
+        "quantity": 150,
+        "unit_price": 3.5,
+        "amount": 525
+      },
+      {
+        "name": "2.6x1.8",
+        "unit": "寸",
+        "quantity": 150,
+        "unit_price": 3.2,
+        "amount": 480
+      }
+    ],
+    "total_amount": 1022,
+    "order_date": "2024-05-07",
+    "upload_date": "2025-10-05T10:11:15.785Z",
+    "image_r2_key": "images/OD-1759659075747-d17df818f20df381a2a9b13e50efeb3c.jpg"
+  },
+  {
+    "order_id": "20230905-01",
+    "customer_name": "13775063685",
+    "items": [
+      {
+        "name": "1.8米",
+        "unit": "平方米",
+        "quantity": 72,
+        "unit_price": 28,
+        "amount": 2016
+      },
+      {
+        "name": "2.2米",
+        "unit": "平方米",
+        "quantity": 74.8,
+        "unit_price": 25,
+        "amount": 1870
+      },
+      {
+        "name": "2米",
+        "unit": "平方米",
+        "quantity": 12,
+        "unit_price": 21.5,
+        "amount": 258
+      },
+      {
+        "name": "条",
+        "unit": "根",
+        "quantity": 115,
+        "unit_price": 3.5,
+        "amount": 402
+      },
+      {
+        "name": "三角木",
+        "unit": "根",
+        "quantity": 55,
+        "unit_price": 5,
+        "amount": 275
+      },
+      {
+        "name": "防潮布",
+        "unit": "卷",
+        "quantity": 2,
+        "unit_price": 18,
+        "amount": 360
+      },
+      {
+        "name": "车费",
+        "unit": "",
+        "quantity": 1,
+        "unit_price": 180,
+        "amount": 180
+      },
+      {
+        "name": "钉",
+        "unit": "斤",
+        "quantity": 20,
+        "unit_price": 4,
+        "amount": 80
+      }
+    ],
+    "total_amount": 5441,
+    "order_date": "2023-09-05",
+    "upload_date": "2025-10-05T10:22:48.557Z",
+    "image_r2_key": "images/20230905-01-d0f27b2d43b371a5deeb1abee8d8f740.jpg"
+  }
+]

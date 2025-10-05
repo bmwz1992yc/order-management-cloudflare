@@ -1,0 +1,6 @@
+{
+  "api_provider": "gemini",
+  "api_url": "https://api.openai.com/v1/chat/completions",
+  "model_name": "gemini-2.5-flash",
+  "api_key": "AIzaSyDw5WxC73mgLw-VjGBR3i7y-kr1VrsmckU"
+}

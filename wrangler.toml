@@ -1,0 +1,10 @@
+name = "order-manager-worker"
+main = "index.js"
+compatibility_date = "2024-05-18"
+
+[site]
+bucket = "./"
+
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "your-bucket-name-goes-here"
