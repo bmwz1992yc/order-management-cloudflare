@@ -33,6 +33,9 @@
         td.editable { cursor: pointer; }
         td.editing { padding: 0; }
         td.editing input { width: 100%; height: 100%; border: 2px solid #007bff; box-sizing: border-box; padding: 8px; }
+        td.highlight-error {
+            background-color: #ffe0e0; /* Light red */
+        }
         .actions { display: flex; gap: 10px; margin-bottom: 20px; }
         .actions button { flex: 1; }
         .hidden { display: none; }
@@ -209,6 +212,8 @@
         <tbody>
         </tbody>
     </table>
+
+    <div id="totalAmountDisplay" style="margin-top: 15px; font-weight: bold; font-size: 1.1em;"></div>
 </div>
 
 <div id="image-lightbox" onclick="this.style.display='none'">
@@ -534,15 +539,40 @@
         ordersTableBody.innerHTML = '';
         if (processedOrders.length === 0) {
             ordersTableBody.innerHTML = '<tr><td colspan="12">无匹配的订单数据。</td></tr>';
+            document.getElementById('totalAmountDisplay').textContent = '当前显示订单总金额: 0.00';
             return;
         }
+
+        let grandTotal = 0; // Initialize grand total
 
         processedOrders.forEach(order => {
             const items = order.items && order.items.length > 0 ? order.items : [{ name: '(无货物)' }];
             const rowCount = items.length;
 
+            let orderItemsCalculatedTotal = 0; // Sum of amounts for current order's items
+            items.forEach(item => {
+                orderItemsCalculatedTotal += parseFloat(item.amount || 0);
+            });
+
+            // Check order-level total discrepancy
+            let orderTotalMismatch = false;
+            if (Math.abs(orderItemsCalculatedTotal - parseFloat(order.total_amount || 0)) > 0.01) { // Allow for float precision
+                orderTotalMismatch = true;
+            }
+
             items.forEach((item, index) => {
                 const row = ordersTableBody.insertRow();
+
+                // Item-level calculation check
+                let itemCalculationMismatch = false;
+                const quantity = parseFloat(item.quantity || 0);
+                const unit_price = parseFloat(item.unit_price || 0);
+                const amount = parseFloat(item.amount || 0);
+                const calculatedAmount = quantity * unit_price;
+
+                if (Math.abs(calculatedAmount - amount) > 0.01) { // Allow for float precision
+                    itemCalculationMismatch = true;
+                }
 
                 if (index === 0) {
                     let idCell = row.insertCell();
@@ -566,6 +596,11 @@
                     cell.dataset.field = 'items';
                     cell.dataset.itemIndex = index;
                     cell.dataset.itemField = itemField;
+
+                    // Apply highlight for item calculation mismatch
+                    if (itemCalculationMismatch && (itemField === 'quantity' || itemField === 'unit_price' || itemField === 'amount')) {
+                        cell.classList.add('highlight-error');
+                    }
                 });
 
                 if (index === 0) {
@@ -580,6 +615,10 @@
                                 cell.classList.add('editable');
                                 cell.dataset.orderId = order.order_id;
                                 cell.dataset.field = field;
+                                // Apply highlight for order total mismatch
+                                if (orderTotalMismatch) {
+                                    cell.classList.add('highlight-error');
+                                }
                                 break;
                             case 'order_date':
                                 cell.textContent = order.order_date || '';
@@ -610,7 +649,11 @@
                     });
                 }
             });
+            grandTotal += parseFloat(order.total_amount || 0); // Add to grand total
         });
+
+        // Update grand total display
+        document.getElementById('totalAmountDisplay').textContent = `当前显示订单总金额: ${grandTotal.toFixed(2)}`;
     }
 
     async function updateOrderData(order_id, field, value, item_index = null, item_field = null) {

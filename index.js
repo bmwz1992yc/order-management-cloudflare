@@ -196,7 +196,7 @@ async function handleUpload(request, env) {
                 const base64Image = arrayBufferToBase64(arrayBuffer);
                 const imageContentType = imageFile.type || 'image/jpeg';
 
-                const prompt = `请从手写订单图片中识别出客户名称(customer_name)、一个包含所有货物详情的JSON数组(items)、订单总金额(total_amount, 只返回数字)、和订单日期(order_date, 格式YYYY-MM-DD)，并严格以 JSON 格式返回结果。在items数组中，每个货物都应该是一个包含'name'(货物名称), 'unit'(单位, 例如'件'、'箱'), 'quantity'(数量, 数字), 'unit_price'(单价, 数字), 和 'amount'(该项总金额, 数字)的对象。确保所有价格相关的字段都是数字。`;
+                const prompt = `请从手写订单图片中识别出客户名称(customer_name)、一个包含所有货物详情的JSON数组(items)、订单总金额(total_amount, 只返回数字)、和订单日期(order_date, 格式YYYY-MM-DD)，并严格以 JSON 格式返回结果。这份订单主要涉及**木材和五金类商品**。在items数组中，每个货物都应该是一个包含'name'(货物名称), 'unit'(单位, 例如'件'、'箱'、'立方米'、'根'、'套'、'公斤'、'米'), 'quantity'(数量, 数字), 'unit_price'(单价, 数字), 和 'amount'(该项总金额, 数字)的对象。确保所有价格和数量相关的字段都是数字。`;
                 let extractedJson;
 
                 if (activeProviderName === 'gemini') {
