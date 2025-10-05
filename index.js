@@ -84,8 +84,8 @@ async function handleUpdateConfig(request, env) {
         const defaultConfig = {
             active_provider: 'openai',
             providers: {
-                openai: { api_url: '', model_name: '', api_key: '' },
-                gemini: { model_name: '', api_key: '' }
+                openai: { api_url: 'https://api.openai.com/v1/chat/completions', model_name: 'gpt-4o-mini', api_key: '' },
+                gemini: { model_name: 'gemini-1.5-flash', api_key: '' }
             }
         };
         const existingConfig = await getR2Json(env, CONFIG_KEY, defaultConfig);
@@ -93,6 +93,11 @@ async function handleUpdateConfig(request, env) {
         const newConfig = JSON.parse(JSON.stringify(existingConfig));
 
         newConfig.active_provider = active_provider;
+
+        // Ensure the provider entry exists before trying to update it
+        if (!newConfig.providers[active_provider]) {
+            newConfig.providers[active_provider] = {};
+        }
 
         const providerConf = newConfig.providers[active_provider];
         if (providerConf) {
@@ -103,6 +108,7 @@ async function handleUpdateConfig(request, env) {
             if (config_data.model_name) {
                 providerConf.model_name = config_data.model_name;
             }
+            // Only update API key if a new one is provided (not empty string from input)
             if (config_data.api_key) {
                 providerConf.api_key = config_data.api_key;
             }
