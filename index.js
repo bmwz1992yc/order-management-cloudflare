@@ -49,13 +49,24 @@ async function putR2Json(env, key, data) {
 /** GET /api/config: 获取配置 */
 async function handleGetConfig(env) {
     const defaultConfig = {
-        api_provider: "openai",
-        api_url: "https://api.openai.com/v1/chat/completions",
-        model_name: "gpt-4o-mini",
-        api_key: ""
+        active_provider: 'openai',
+        providers: {
+            openai: { api_url: 'https://api.openai.com/v1/chat/completions', model_name: 'gpt-4o-mini', api_key: '' },
+            gemini: { model_name: 'gemini-1.5-flash', api_key: '' }
+        }
     };
     const config = await getR2Json(env, CONFIG_KEY, defaultConfig);
-    const { api_key, ...safeConfig } = config;
+
+    // Create a deep copy to send to the client, removing all API keys
+    const safeConfig = JSON.parse(JSON.stringify(config));
+    if (safeConfig.providers) {
+        for (const provider in safeConfig.providers) {
+            if (safeConfig.providers[provider].api_key) {
+                delete safeConfig.providers[provider].api_key;
+            }
+        }
+    }
+
     return new Response(JSON.stringify(safeConfig), {
         headers: { "Content-Type": "application/json" }
     });
@@ -64,25 +75,49 @@ async function handleGetConfig(env) {
 /** POST /api/config: 更新配置 */
 async function handleUpdateConfig(request, env) {
     try {
-        const newConfig = await request.json();
-        const existingConfig = await getR2Json(env, CONFIG_KEY, {});
-        
-        const configToSave = {
-            api_provider: newConfig.api_provider || existingConfig.api_provider || 'openai',
-            api_url: newConfig.api_url || existingConfig.api_url || '',
-            model_name: newConfig.model_name || existingConfig.model_name || '',
-            api_key: newConfig.api_key || existingConfig.api_key || ''
+        const { active_provider, config_data } = await request.json();
+
+        if (!active_provider || !config_data) {
+            return new Response(JSON.stringify({ error: "请求体格式不正确" }), { status: 400 });
+        }
+
+        const defaultConfig = {
+            active_provider: 'openai',
+            providers: {
+                openai: { api_url: '', model_name: '', api_key: '' },
+                gemini: { model_name: '', api_key: '' }
+            }
         };
-        
-        await putR2Json(env, CONFIG_KEY, configToSave);
+        const existingConfig = await getR2Json(env, CONFIG_KEY, defaultConfig);
+
+        const newConfig = JSON.parse(JSON.stringify(existingConfig));
+
+        newConfig.active_provider = active_provider;
+
+        const providerConf = newConfig.providers[active_provider];
+        if (providerConf) {
+            // Use !== undefined to allow setting an empty string for the URL
+            if (config_data.api_url !== undefined) {
+                providerConf.api_url = config_data.api_url;
+            }
+            if (config_data.model_name) {
+                providerConf.model_name = config_data.model_name;
+            }
+            if (config_data.api_key) {
+                providerConf.api_key = config_data.api_key;
+            }
+        }
+
+        await putR2Json(env, CONFIG_KEY, newConfig);
 
         return new Response(JSON.stringify({ message: "配置更新成功" }), {
             status: 200,
             headers: { "Content-Type": "application/json" }
         });
     } catch (e) {
+        console.error("更新配置失败:", e.stack);
         return new Response(JSON.stringify({ error: "更新配置失败", details: e.message }), {
-            status: 400
+            status: 500
         });
     }
 }
@@ -91,21 +126,28 @@ async function handleUpdateConfig(request, env) {
 async function handleUpload(request, env) {
     const results = [];
     let existingOrders;
-    let config;
 
     try {
         // 1. Fetch shared resources once
-        config = await getR2Json(env, CONFIG_KEY, {});
+        const config = await getR2Json(env, CONFIG_KEY, {});
         existingOrders = await getR2Json(env, DATA_KEY, []);
-        const { api_provider = 'openai', api_url, model_name, api_key } = config;
+
+        const activeProviderName = config.active_provider || 'openai';
+        const providerConfig = config.providers ? config.providers[activeProviderName] : null;
+
+        if (!providerConfig) {
+            throw new Error(`配置中缺少活动的提供商 '${activeProviderName}' 的设置。`);
+        }
+
+        const { api_url, model_name, api_key } = providerConfig;
 
         if (!api_key) {
-            throw new Error("API 密钥未设置。请先在网页的配置部分输入并保存您的 API 密钥。");
+            throw new Error(`'${activeProviderName}' 的 API 密钥未设置。请先在网页的配置部分输入并保存您的 API 密钥。`);
         }
         if (!model_name) {
-            throw new Error("AI 模型名称缺失，请先配置");
+            throw new Error(`'${activeProviderName}' 的 AI 模型名称缺失，请先配置`);
         }
-        if (api_provider === 'openai' && !api_url) {
+        if (activeProviderName === 'openai' && !api_url) {
             throw new Error("OpenAI 兼容 API 的 URL 缺失，请先配置");
         }
 
@@ -131,7 +173,7 @@ async function handleUpload(request, env) {
                 const prompt = `请从手写订单图片中识别出客户名称(customer_name)、一个包含所有货物详情的JSON数组(items)、订单总金额(total_amount, 只返回数字)、和订单日期(order_date, 格式YYYY-MM-DD)，并严格以 JSON 格式返回结果。在items数组中，每个货物都应该是一个包含'name'(货物名称), 'unit'(单位, 例如'件'、'箱'), 'quantity'(数量, 数字), 'unit_price'(单价, 数字), 和 'amount'(该项总金额, 数字)的对象。确保所有价格相关的字段都是数字。`;
                 let extractedJson;
 
-                if (api_provider === 'gemini') {
+                if (activeProviderName === 'gemini') {
                     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model_name}:generateContent?key=${api_key}`;
                     const geminiResponse = await fetch(geminiUrl, {
                         method: "POST",

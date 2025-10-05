@@ -219,6 +219,7 @@
 <script>
     // --- 全局状态 ---
     let allOrders = [];
+    let appConfig = {}; // 全局存储配置
 
     // --- DOM 元素 ---
     const apiUrlInput = document.getElementById('apiUrl');
@@ -251,26 +252,38 @@
     });
 
     apiProviderSelect.addEventListener('change', () => {
-        if (apiProviderSelect.value === 'gemini') {
-            apiUrlContainer.classList.add('hidden');
-            apiUrlInput.required = false;
-        } else {
-            apiUrlContainer.classList.remove('hidden');
-            apiUrlInput.required = true;
-        }
+        updateConfigFormUI(apiProviderSelect.value);
     });
 
     configForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         try {
-            const newConfig = { api_provider: apiProviderSelect.value, api_url: apiUrlInput.value, model_name: modelNameInput.value, api_key: apiKeyInput.value };
-            const response = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(newConfig) });
+            const provider = apiProviderSelect.value;
+            const payload = {
+                active_provider: provider,
+                config_data: {
+                    api_url: apiUrlInput.value,
+                    model_name: modelNameInput.value,
+                    api_key: apiKeyInput.value
+                }
+            };
+
+            const response = await fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
             if (!response.ok) throw new Error('保存失败');
+            
             showMessage('API 配置保存成功！', 'success');
             apiKeyInput.value = '';
+            
+            await loadConfig(); // Reload config to get fresh state
+
         } catch (error) {
             console.error('配置保存失败:', error);
-            showMessage('保存配置失败。', 'error');
+            showMessage(`保存配置失败: ${error.message}`, 'error');
         }
     });
 
@@ -372,7 +385,6 @@
     });
 
     ordersTableBody.addEventListener('click', (e) => {
-        // Image click for lightbox
         const img = e.target.closest('.col-order-image img');
         if (img) {
             e.preventDefault();
@@ -382,7 +394,6 @@
             return;
         }
 
-        // Delete button click
         const deleteButton = e.target.closest('.delete-btn');
         if (deleteButton) {
             const orderId = deleteButton.dataset.orderId;
@@ -392,7 +403,6 @@
         }
     });
 
-    // --- Filter/Sort Listeners ---
     [orderDateStartInput, orderDateEndInput, uploadDateStartInput, uploadDateEndInput].forEach(el => {
         el.addEventListener('change', renderOrders);
     });
@@ -424,21 +434,41 @@
         statusMessage.textContent = msg;
         statusMessage.className = `message ${type}`;
         statusMessage.classList.remove('hidden');
-        setTimeout(() => { statusMessage.classList.add('hidden'); }, 7000);
+        setTimeout(() => { statusMessage.classList.add('hidden'); }, 30000);
+    }
+
+    function updateConfigFormUI(provider) {
+        const providerConf = appConfig.providers ? (appConfig.providers[provider] || {}) : {};
+        
+        if (provider === 'gemini') {
+            apiUrlContainer.classList.add('hidden');
+            apiUrlInput.required = false;
+        } else {
+            apiUrlContainer.classList.remove('hidden');
+            apiUrlInput.required = true;
+        }
+        
+        apiUrlInput.value = providerConf.api_url || '';
+        modelNameInput.value = providerConf.model_name || '';
+        apiKeyInput.placeholder = '若不更新请留空';
+        apiKeyInput.value = '';
     }
 
     async function loadConfig() {
         try {
             const response = await fetch('/api/config');
             if (!response.ok) throw new Error('加载配置失败');
-            const config = await response.json();
-            apiProviderSelect.value = config.api_provider || 'openai';
-            apiUrlInput.value = config.api_url || '';
-            modelNameInput.value = config.model_name || '';
+            
+            appConfig = await response.json();
+            
+            apiProviderSelect.value = appConfig.active_provider || 'openai';
+            
             apiProviderSelect.dispatchEvent(new Event('change'));
+
         } catch (error) {
             console.error('配置加载失败:', error);
             showMessage('初始化配置失败，请手动填写并保存。', 'error');
+            apiProviderSelect.dispatchEvent(new Event('change'));
         }
     }
 
@@ -475,7 +505,6 @@
     function renderOrders() {
         let processedOrders = [...allOrders];
 
-        // 1. Filtering
         const selectedCustomers = Array.from(customerCheckboxes.querySelectorAll('input:checked')).map(c => c.value);
         if (selectedCustomers.length > 0) {
             processedOrders = processedOrders.filter(order => selectedCustomers.includes(order.customer_name));
@@ -502,7 +531,6 @@
             processedOrders = processedOrders.filter(order => order.upload_date.substring(0, 10) <= uploadDateEnd);
         }
 
-        // 2. Rendering
         ordersTableBody.innerHTML = '';
         if (processedOrders.length === 0) {
             ordersTableBody.innerHTML = '<tr><td colspan="12">无匹配的订单数据。</td></tr>';
