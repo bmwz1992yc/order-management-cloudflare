@@ -1,4 +1,4 @@
-name = "order-manager-worker"
+name = "order-management-cloudflare"
 main = "index.js"
 compatibility_date = "2024-05-18"
 
