@@ -89,38 +89,35 @@ async function handleUpdateConfig(request, env) {
             }
         };
         
-        // Get existing config. If it's an old format, we need to migrate it.
-        let currentConfig = await getR2Json(env, CONFIG_KEY, null); // Get raw existing config, or null if not found
+        // Always start with a deep copy of the defaultConfig to ensure the structure is present
+        let currentConfig = JSON.parse(JSON.stringify(defaultConfig));
 
-        // If currentConfig is null or an old flat structure, initialize with defaultConfig
-        if (!currentConfig || !currentConfig.providers) {
-            currentConfig = JSON.parse(JSON.stringify(defaultConfig)); // Start with full default structure
-            // If it was an old flat config, try to migrate its values
-            if (currentConfig.api_provider && currentConfig.providers[currentConfig.api_provider]) {
-                Object.assign(currentConfig.providers[currentConfig.api_provider], {
-                    api_url: currentConfig.api_url,
-                    model_name: currentConfig.model_name,
-                    api_key: currentConfig.api_key
-                });
-                // Remove old flat properties to avoid confusion
-                delete currentConfig.api_provider;
-                delete currentConfig.api_url;
-                delete currentConfig.model_name;
-                delete currentConfig.api_key;
-            }
-        } else {
-            // Ensure existing providers are merged with default ones to pick up new fields if any
-            // This also handles cases where new providers might be added to defaultConfig later
-            currentConfig = { ...defaultConfig, ...currentConfig }; // Shallow merge top-level properties
-            for (const providerKey in defaultConfig.providers) {
-                currentConfig.providers[providerKey] = {
-                    ...defaultConfig.providers[providerKey],
-                    ...(currentConfig.providers[providerKey] || {})
-                };
+        // Get existing config from R2 (could be old format or new)
+        const existingR2Config = await getR2Json(env, CONFIG_KEY, null);
+
+        if (existingR2Config) {
+            // If existingR2Config is an old flat structure, migrate its values into currentConfig
+            if (!existingR2Config.providers) {
+                if (existingR2Config.api_provider && currentConfig.providers[existingR2Config.api_provider]) {
+                    Object.assign(currentConfig.providers[existingR2Config.api_provider], {
+                        api_url: existingR2Config.api_url,
+                        model_name: existingR2Config.model_name,
+                        api_key: existingR2Config.api_key
+                    });
+                    currentConfig.active_provider = existingR2Config.api_provider;
+                }
+            } else {
+                // If existingR2Config has the new structure, merge its values into currentConfig
+                currentConfig.active_provider = existingR2Config.active_provider || currentConfig.active_provider;
+                for (const providerKey in existingR2Config.providers) {
+                    if (currentConfig.providers[providerKey]) { // Only merge if the provider is known in defaultConfig
+                        Object.assign(currentConfig.providers[providerKey], existingR2Config.providers[providerKey]);
+                    }
+                }
             }
         }
 
-        // Now currentConfig is guaranteed to have the correct structure.
+        // Now currentConfig is guaranteed to have the correct structure and existing values merged.
         // Apply updates from the request.
         currentConfig.active_provider = active_provider; // This comes from the frontend selection
 
