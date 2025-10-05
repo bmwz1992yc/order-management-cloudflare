@@ -43,3 +43,6 @@ temp/
 # Lock files
 package-lock.json
 yarn.lock
+
+# Wrangler
+.wrangler/

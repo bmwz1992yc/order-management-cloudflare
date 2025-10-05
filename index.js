@@ -89,118 +89,135 @@ async function handleUpdateConfig(request, env) {
 
 /** POST /api/upload: 上传图片并识别订单信息 */
 async function handleUpload(request, env) {
+    const results = [];
+    let existingOrders;
+    let config;
+
     try {
-        const config = await getR2Json(env, CONFIG_KEY, {});
+        // 1. Fetch shared resources once
+        config = await getR2Json(env, CONFIG_KEY, {});
+        existingOrders = await getR2Json(env, DATA_KEY, []);
         const { api_provider = 'openai', api_url, model_name, api_key } = config;
 
         if (!api_key) {
-            return new Response(JSON.stringify({ error: "API 密钥未设置。请先在网页的配置部分输入并保存您的 API 密钥。" }), { status: 500 });
+            throw new Error("API 密钥未设置。请先在网页的配置部分输入并保存您的 API 密钥。");
+        }
+        if (!model_name) {
+            throw new Error("AI 模型名称缺失，请先配置");
+        }
+        if (api_provider === 'openai' && !api_url) {
+            throw new Error("OpenAI 兼容 API 的 URL 缺失，请先配置");
         }
 
         const formData = await request.formData();
-        const imageFile = formData.get("orderImage");
+        const imageFiles = formData.getAll("orderImages");
 
-        if (!imageFile || imageFile.size === 0) {
-            return new Response(JSON.stringify({ error: "未接收到图片文件" }), { status: 400 });
+        if (!imageFiles || imageFiles.length === 0) {
+            return new Response(JSON.stringify({ error: "未接收到任何图片文件" }), { status: 400 });
         }
 
-        const arrayBuffer = await imageFile.arrayBuffer();
-        const base64Image = arrayBufferToBase64(arrayBuffer);
-        const imageContentType = imageFile.type || 'image/jpeg';
-
-        if (!model_name) {
-            return new Response(JSON.stringify({ error: "AI 模型名称缺失，请先配置" }), { status: 500 });
-        }
-        if (api_provider === 'openai' && !api_url) {
-            return new Response(JSON.stringify({ error: "OpenAI 兼容 API 的 URL 缺失，请先配置" }), { status: 500 });
-        }
-
-        const prompt = `请从手写订单图片中识别出客户名称(customer_name)、一个包含所有货物详情的JSON数组(items)、订单总金额(total_amount, 只返回数字)、和订单日期(order_date, 格式YYYY-MM-DD)，并严格以 JSON 格式返回结果。在items数组中，每个货物都应该是一个包含'name'(货物名称), 'unit'(单位, 例如'件'、'箱'), 'quantity'(数量, 数字), 'unit_price'(单价, 数字), 和 'amount'(该项总金额, 数字)的对象。确保所有价格相关的字段都是数字。`;
-        let extractedJson;
-
-        if (api_provider === 'gemini') {
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model_name}:generateContent?key=${api_key}`;
-            const geminiResponse = await fetch(geminiUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: imageContentType, data: base64Image } }] }],
-                    generationConfig: { response_mime_type: "application/json" }
-                })
-            });
-            if (!geminiResponse.ok) {
-                const errorText = await geminiResponse.text();
-                throw new Error(`Gemini API 错误: ${geminiResponse.status} - ${errorText}`);
+        // 2. Process each file individually
+        for (const imageFile of imageFiles) {
+            if (!imageFile || imageFile.size === 0) {
+                results.push({ success: false, filename: imageFile.name || 'unknown', error: "空文件或无效文件" });
+                continue;
             }
-            const geminiData = await geminiResponse.json();
-            extractedJson = geminiData.candidates[0].content.parts[0].text;
-        } else {
-            const aiResponse = await fetch(api_url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${api_key}` },
-                body: JSON.stringify({
-                    model: model_name,
-                    messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${imageContentType};base64,${base64Image}` } }] }],
-                    response_format: { type: "json_object" }
-                })
-            });
-            if (!aiResponse.ok) {
-                const errorText = await aiResponse.text();
-                throw new Error(`AI API 错误: ${aiResponse.status} - ${errorText}`);
-            }
-            const aiData = await aiResponse.json();
-            extractedJson = aiData.choices[0].message.content;
-        }
-        
-        if (extractedJson.startsWith('```json')) {
-             extractedJson = extractedJson.substring(7, extractedJson.lastIndexOf('```')).trim();
-        }
-        const orderData = JSON.parse(extractedJson);
 
-        const existingOrders = await getR2Json(env, DATA_KEY, []);
-        const orderDate = orderData.order_date || new Date().toISOString().substring(0, 10); // "YYYY-MM-DD"
-        const datePrefix = orderDate.replace(/-/g, ''); // "YYYYMMDD"
+            try {
+                const arrayBuffer = await imageFile.arrayBuffer();
+                const base64Image = arrayBufferToBase64(arrayBuffer);
+                const imageContentType = imageFile.type || 'image/jpeg';
 
-        // Find the highest sequence number for this date
-        let maxSeq = 0;
-        for (const order of existingOrders) {
-            if (order.order_id.startsWith(datePrefix)) {
-                const seqStr = order.order_id.split('-')[1];
-                if (seqStr) {
-                    const seq = parseInt(seqStr, 10);
-                    if (seq > maxSeq) {
-                        maxSeq = seq;
+                const prompt = `请从手写订单图片中识别出客户名称(customer_name)、一个包含所有货物详情的JSON数组(items)、订单总金额(total_amount, 只返回数字)、和订单日期(order_date, 格式YYYY-MM-DD)，并严格以 JSON 格式返回结果。在items数组中，每个货物都应该是一个包含'name'(货物名称), 'unit'(单位, 例如'件'、'箱'), 'quantity'(数量, 数字), 'unit_price'(单价, 数字), 和 'amount'(该项总金额, 数字)的对象。确保所有价格相关的字段都是数字。`;
+                let extractedJson;
+
+                if (api_provider === 'gemini') {
+                    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model_name}:generateContent?key=${api_key}`;
+                    const geminiResponse = await fetch(geminiUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: imageContentType, data: base64Image } }] }],
+                            generationConfig: { response_mime_type: "application/json" }
+                        })
+                    });
+                    if (!geminiResponse.ok) {
+                        const errorText = await geminiResponse.text();
+                        throw new Error(`Gemini API 错误: ${geminiResponse.status} - ${errorText}`);
                     }
+                    const geminiData = await geminiResponse.json();
+                    extractedJson = geminiData.candidates[0].content.parts[0].text;
+                } else { // OpenAI compatible
+                    const aiResponse = await fetch(api_url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${api_key}` },
+                        body: JSON.stringify({
+                            model: model_name,
+                            messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${imageContentType};base64,${base64Image}` } }] }],
+                            response_format: { type: "json_object" }
+                        })
+                    });
+                    if (!aiResponse.ok) {
+                        const errorText = await aiResponse.text();
+                        throw new Error(`AI API 错误: ${aiResponse.status} - ${errorText}`);
+                    }
+                    const aiData = await aiResponse.json();
+                    extractedJson = aiData.choices[0].message.content;
                 }
+
+                if (extractedJson.startsWith('```json')) {
+                    extractedJson = extractedJson.substring(7, extractedJson.lastIndexOf('```')).trim();
+                }
+                const orderData = JSON.parse(extractedJson);
+
+                // --- Order ID Generation (in-memory) ---
+                const orderDate = orderData.order_date || new Date().toISOString().substring(0, 10);
+                const datePrefix = orderDate.replace(/-/g, '');
+                let maxSeq = 0;
+                existingOrders.forEach(order => {
+                    if (order.order_id.startsWith(datePrefix)) {
+                        const seq = parseInt(order.order_id.split('-')[1], 10);
+                        if (seq > maxSeq) maxSeq = seq;
+                    }
+                });
+                const newSeq = maxSeq + 1;
+                const orderId = `${datePrefix}-${String(newSeq).padStart(2, '0')}`;
+                // --- End ID Generation ---
+
+                const imageR2Key = `${IMAGE_PREFIX}${orderId}-${imageFile.name}`;
+                await env.R2_BUCKET.put(imageR2Key, arrayBuffer, { httpMetadata: { contentType: imageContentType } });
+
+                const newRecord = {
+                    order_id: orderId,
+                    customer_name: orderData.customer_name || 'N/A',
+                    items: orderData.items || [],
+                    total_amount: parseFloat(orderData.total_amount) || 0,
+                    order_date: orderDate,
+                    upload_date: new Date().toISOString(),
+                    image_r2_key: imageR2Key
+                };
+
+                existingOrders.push(newRecord); // Add to in-memory list for next ID calculation
+                results.push({ success: true, filename: imageFile.name, data: newRecord });
+
+            } catch (e) {
+                console.error(`处理文件 ${imageFile.name} 失败:`, e.stack);
+                results.push({ success: false, filename: imageFile.name, error: e.message });
             }
         }
 
-        const newSeq = maxSeq + 1;
-        const newSeqPadded = String(newSeq).padStart(2, '0');
-        const orderId = `${datePrefix}-${newSeqPadded}`;
+        // 3. Save all successful orders at once
+        if (results.some(r => r.success)) {
+            await putR2Json(env, DATA_KEY, existingOrders);
+        }
 
-        const imageR2Key = `${IMAGE_PREFIX}${orderId}-${imageFile.name}`;
-        await env.R2_BUCKET.put(imageR2Key, arrayBuffer, { httpMetadata: { contentType: imageContentType } });
-
-        const newRecord = {
-            order_id: orderId,
-            customer_name: orderData.customer_name || 'N/A',
-            items: orderData.items || [],
-            total_amount: parseFloat(orderData.total_amount) || 0,
-            order_date: orderDate,
-            upload_date: new Date().toISOString(),
-            image_r2_key: imageR2Key
-        };
-
-        existingOrders.push(newRecord);
-        await putR2Json(env, DATA_KEY, existingOrders);
-
-        return new Response(JSON.stringify({ message: "订单识别与存储成功", data: newRecord }), {
+        return new Response(JSON.stringify(results), {
             status: 200,
             headers: { "Content-Type": "application/json" }
         });
 
     } catch (e) {
+        // This catches initial setup errors (e.g., loading config)
         console.error("处理订单失败:", e.stack);
         return new Response(JSON.stringify({ error: "处理订单失败", details: e.message }), {
             status: 500

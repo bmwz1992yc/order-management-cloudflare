@@ -91,11 +91,6 @@
 
 <div class="container">
     <h1>订单管理系统 (R2 + AI 识别)</h1>
-    <div id="statusMessage" class="message hidden"></div>
-
-    <div class="api-key-warning">
-        <strong>安全提醒：</strong>API 密钥将以纯文本形式存储在您的 R2 存储桶中。请确保只有受信任的人员可以访问此页面和您的 Cloudflare 账户。
-    </div>
 
     <h2 id="toggleConfig" style="cursor: pointer;">▶ 大模型 API 配置</h2>
     <div id="configContent" class="hidden"> 
@@ -123,10 +118,12 @@
         </div>
     </div>
 
+    <div id="statusMessage" class="message hidden"></div>
+
     <h2>订单上传与识别</h2>
     <form id="uploadForm">
-        <label for="orderImage">上传手写订单照片 (兼容手机拍照)</label>
-        <input type="file" id="orderImage" name="orderImage" accept="image/*" capture="camera" required>
+        <label for="orderImages">上传手写订单照片 (兼容手机拍照)</label>
+        <input type="file" id="orderImages" name="orderImages" accept="image/*" capture="camera" multiple required>
         
         <button type="submit" id="uploadButton">上传并识别订单</button>
     </form>
@@ -280,15 +277,49 @@
     uploadForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const uploadButton = document.getElementById('uploadButton');
+        const imageInput = document.getElementById('orderImages');
+        const files = imageInput.files;
+
+        if (files.length === 0) {
+            showMessage('请至少选择一张图片。', 'error');
+            return;
+        }
+
         uploadButton.disabled = true;
-        uploadButton.textContent = '正在上传并识别中...请勿关闭';
+        uploadButton.textContent = `正在上传并识别 ${files.length} 个订单...`;
+
+        const formData = new FormData();
+        for (let i = 0; i < files.length; i++) {
+            formData.append('orderImages', files[i]);
+        }
+
         try {
-            const formData = new FormData(uploadForm);
             const response = await fetch('/api/upload', { method: 'POST', body: formData });
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.details || result.error || '识别失败');
-            showMessage(`订单识别成功！订单ID: ${result.data.order_id}`, 'success');
-            await fetchOrders();
+            const results = await response.json();
+
+            if (!response.ok) {
+                throw new Error(results.details || results.error || '一个或多个文件上传失败');
+            }
+
+            const successfulUploads = results.filter(r => r.success);
+            const failedUploads = results.filter(r => !r.success);
+
+            let message = '';
+            let messageType = 'success';
+
+            if (successfulUploads.length > 0) {
+                message += `成功处理 ${successfulUploads.length} 个订单。`;
+                await fetchOrders(); // Refresh the list if at least one succeeded
+            }
+
+            if (failedUploads.length > 0) {
+                const failedFileNames = failedUploads.map(f => f.filename).join(', ');
+                message += `\n${failedUploads.length} 个文件失败: ${failedFileNames}。`;
+                messageType = successfulUploads.length === 0 ? 'error' : 'success'; // If some succeed, it's not a full error
+            }
+            
+            showMessage(message.trim(), messageType);
+
         } catch (error) {
             console.error('上传或识别失败:', error);
             showMessage(`上传/识别失败: ${error.message}`, 'error');
