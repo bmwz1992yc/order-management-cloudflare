@@ -88,11 +88,55 @@
             font-weight: bold;
             cursor: pointer;
         }
+        /* Password Overlay */
+        #password-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            z-index: 3000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+        }
+        #password-box {
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            text-align: center;
+            width: 300px;
+        }
+        #password-box h2 {
+            margin-top: 0;
+        }
+        #password-input {
+            width: 100%;
+            margin-bottom: 15px;
+        }
+        #password-message {
+            color: #dc3545;
+            margin-top: 10px;
+            min-height: 1.2em;
+        }
     </style>
 </head>
 <body>
 
-<div class="container">
+<div id="password-overlay">
+    <div id="password-box">
+        <h2>请输入密码</h2>
+        <form id="password-form">
+            <input type="password" id="password-input" placeholder="Password" required>
+            <button type="submit">进入</button>
+        </form>
+        <div id="password-message"></div>
+    </div>
+</div>
+
+<div class="container" style="display: none;">
     <h1>订单管理系统 (R2 + AI 识别)</h1>
 
     <h2 id="toggleConfig" style="cursor: pointer;">▶ 大模型 API 配置</h2>
@@ -730,9 +774,55 @@
         window.open(`/api/export-html?${queryString}`, '_blank');
     }
 
-    window.onload = () => {
+    // --- Password Verification Logic ---
+    const passwordOverlay = document.getElementById('password-overlay');
+    const passwordForm = document.getElementById('password-form');
+    const passwordInput = document.getElementById('password-input');
+    const passwordMessage = document.getElementById('password-message');
+    const container = document.querySelector('.container');
+    const AUTH_KEY = 'isAuthenticated';
+
+    function showMainContent() {
+        passwordOverlay.style.display = 'none';
+        container.style.display = 'block';
+        // Initialize the main application
         loadConfig();
         fetchOrders();
+    }
+
+    passwordForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const password = passwordInput.value;
+        passwordMessage.textContent = '';
+
+        try {
+            const response = await fetch('/api/verify-password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password })
+            });
+
+            const result = await response.json();
+
+            if (response.ok && result.success) {
+                sessionStorage.setItem(AUTH_KEY, 'true');
+                showMainContent();
+            } else {
+                passwordMessage.textContent = '密码错误，请重试。';
+            }
+        } catch (error) {
+            console.error('Password verification failed:', error);
+            passwordMessage.textContent = '验证时发生错误。';
+        }
+    });
+
+    window.onload = () => {
+        // Check if user is already authenticated in this session
+        if (sessionStorage.getItem(AUTH_KEY) === 'true') {
+            showMainContent();
+        } else {
+            passwordOverlay.style.display = 'flex';
+        }
     };
 </script>
 

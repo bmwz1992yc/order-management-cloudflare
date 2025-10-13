@@ -1,13 +1,12 @@
-import indexHtml from "./index.html";
-
 /**
- * Worker 主代码：订单管理系统后端
+ * Pages Function: 订单管理系统后端
  * 绑定了 R2 存储桶 R2_BUCKET
  */
 
 // --- 常量定义 ---
 const DATA_KEY = "orders/orders_data.json"; // 存储订单数据的主文件
 const CONFIG_KEY = "system/config.json"; // 存储 API 配置的文件
+const PASSWORD_KEY = "system/password.json"; // 存储密码的文件
 const IMAGE_PREFIX = "images/"; // R2 中图片存储前缀
 
 // --- 辅助函数 ---
@@ -89,14 +88,11 @@ async function handleUpdateConfig(request, env) {
             }
         };
         
-        // Always start with a deep copy of the defaultConfig to ensure the structure is present
         let currentConfig = JSON.parse(JSON.stringify(defaultConfig));
 
-        // Get existing config from R2 (could be old format or new)
         const existingR2Config = await getR2Json(env, CONFIG_KEY, null);
 
         if (existingR2Config) {
-            // If existingR2Config is an old flat structure, migrate its values into currentConfig
             if (!existingR2Config.providers) {
                 if (existingR2Config.api_provider && currentConfig.providers[existingR2Config.api_provider]) {
                     Object.assign(currentConfig.providers[existingR2Config.api_provider], {
@@ -107,19 +103,16 @@ async function handleUpdateConfig(request, env) {
                     currentConfig.active_provider = existingR2Config.api_provider;
                 }
             } else {
-                // If existingR2Config has the new structure, merge its values into currentConfig
                 currentConfig.active_provider = existingR2Config.active_provider || currentConfig.active_provider;
                 for (const providerKey in existingR2Config.providers) {
-                    if (currentConfig.providers[providerKey]) { // Only merge if the provider is known in defaultConfig
+                    if (currentConfig.providers[providerKey]) {
                         Object.assign(currentConfig.providers[providerKey], existingR2Config.providers[providerKey]);
                     }
                 }
             }
         }
 
-        // Now currentConfig is guaranteed to have the correct structure and existing values merged.
-        // Apply updates from the request.
-        currentConfig.active_provider = active_provider; // This comes from the frontend selection
+        currentConfig.active_provider = active_provider;
 
         const providerConf = currentConfig.providers[active_provider];
         if (providerConf) {
@@ -129,7 +122,7 @@ async function handleUpdateConfig(request, env) {
             if (config_data.model_name) {
                 providerConf.model_name = config_data.model_name;
             }
-            if (config_data.api_key) { // Only update API key if a new one is provided (not empty string from input)
+            if (config_data.api_key) {
                 providerConf.api_key = config_data.api_key;
             }
         }
@@ -154,7 +147,6 @@ async function handleUpload(request, env) {
     let existingOrders;
 
     try {
-        // 1. Fetch shared resources once
         const config = await getR2Json(env, CONFIG_KEY, {});
         existingOrders = await getR2Json(env, DATA_KEY, []);
 
@@ -184,7 +176,6 @@ async function handleUpload(request, env) {
             return new Response(JSON.stringify({ error: "未接收到任何图片文件" }), { status: 400 });
         }
 
-        // 2. Process each file individually
         for (const imageFile of imageFiles) {
             if (!imageFile || imageFile.size === 0) {
                 results.push({ success: false, filename: imageFile.name || 'unknown', error: "空文件或无效文件" });
@@ -238,7 +229,6 @@ async function handleUpload(request, env) {
                 }
                 const orderData = JSON.parse(extractedJson);
 
-                // --- Order ID Generation (in-memory) ---
                 const orderDate = orderData.order_date || new Date().toISOString().substring(0, 10);
                 const datePrefix = orderDate.replace(/-/g, '');
                 let maxSeq = 0;
@@ -250,7 +240,6 @@ async function handleUpload(request, env) {
                 });
                 const newSeq = maxSeq + 1;
                 const orderId = `${datePrefix}-${String(newSeq).padStart(2, '0')}`;
-                // --- End ID Generation ---
 
                 const imageR2Key = `${IMAGE_PREFIX}${orderId}-${imageFile.name}`;
                 await env.R2_BUCKET.put(imageR2Key, arrayBuffer, { httpMetadata: { contentType: imageContentType } });
@@ -265,7 +254,7 @@ async function handleUpload(request, env) {
                     image_r2_key: imageR2Key
                 };
 
-                existingOrders.push(newRecord); // Add to in-memory list for next ID calculation
+                existingOrders.push(newRecord);
                 results.push({ success: true, filename: imageFile.name, data: newRecord });
 
             } catch (e) {
@@ -274,7 +263,6 @@ async function handleUpload(request, env) {
             }
         }
 
-        // 3. Save all successful orders at once
         if (results.some(r => r.success)) {
             await putR2Json(env, DATA_KEY, existingOrders);
         }
@@ -285,7 +273,6 @@ async function handleUpload(request, env) {
         });
 
     } catch (e) {
-        // This catches initial setup errors (e.g., loading config)
         console.error("处理订单失败:", e.stack);
         return new Response(JSON.stringify({ error: "处理订单失败", details: e.message }), {
             status: 500
@@ -375,8 +362,36 @@ async function handleDeleteOrder(request, env) {
     }
 }
 
+/** POST /api/verify-password: 验证密码 */
+async function handleVerifyPassword(request, env) {
+    try {
+        let storedPasswordData = await getR2Json(env, PASSWORD_KEY);
+        if (!storedPasswordData || !storedPasswordData.password) {
+            const defaultPassword = { password: "11223344" };
+            await putR2Json(env, PASSWORD_KEY, defaultPassword);
+            storedPasswordData = defaultPassword;
+        }
+        const correctPassword = storedPasswordData.password;
 
-// --- 其他 API 路由 ---
+        const { password: submittedPassword } = await request.json();
+        if (typeof submittedPassword !== 'string') {
+             return new Response(JSON.stringify({ success: false, error: "密码格式不正确" }), { status: 400 });
+        }
+
+        const success = submittedPassword === correctPassword;
+
+        return new Response(JSON.stringify({ success }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+        });
+
+    } catch (e) {
+        console.error("验证密码失败:", e.stack);
+        return new Response(JSON.stringify({ success: false, error: "服务器内部错误" }), {
+            status: 500
+        });
+    }
+}
 
 /** GET /api/orders: 获取所有订单数据 */
 async function handleGetOrders(env) {
@@ -447,7 +462,6 @@ async function handleExportHtml(request, env) {
     const baseUrl = `${protocol}//${host}`;
     let allOrders = await getR2Json(env, DATA_KEY, []);
 
-    // Filtering logic
     const selectedCustomers = searchParams.getAll('customer');
     if (selectedCustomers.length > 0) {
         allOrders = allOrders.filter(order => selectedCustomers.includes(order.customer_name));
@@ -566,35 +580,28 @@ async function handleGetImage(request, env) {
     }
 }
 
-// --- Worker 入口与路由 ---
 
-export default {
-    async fetch(request, env, ctx) {
-        const url = new URL(request.url);
+export async function onRequest(context) {
+    const { request, env } = context;
+    const url = new URL(request.url);
 
-        if (url.pathname === "/") {
-            return new Response(indexHtml, {
-                headers: { "Content-Type": "text/html;charset=UTF-8" },
-            });
+    if (url.pathname.startsWith("/api/")) {
+        const path = url.pathname;
+        if (request.method === "GET") {
+            if (path === "/api/config") return handleGetConfig(env);
+            if (path === "/api/orders") return handleGetOrders(env);
+            if (path === "/api/export") return handleExportOrders(request, env);
+            if (path === "/api/export-html") return handleExportHtml(request, env);
+            if (path.startsWith("/api/images/")) return handleGetImage(request, env);
+        } else if (request.method === "POST") {
+            if (path === "/api/config") return handleUpdateConfig(request, env);
+            if (path === "/api/upload") return handleUpload(request, env);
+            if (path === "/api/order/update") return handleUpdateOrder(request, env);
+            if (path === "/api/order/delete") return handleDeleteOrder(request, env);
+            if (path === "/api/verify-password") return handleVerifyPassword(request, env);
         }
-
-        if (url.pathname.startsWith("/api/")) {
-            const path = url.pathname;
-            if (request.method === "GET") {
-                if (path === "/api/config") return handleGetConfig(env);
-                if (path === "/api/orders") return handleGetOrders(env);
-                if (path === "/api/export") return handleExportOrders(request, env);
-                if (path === "/api/export-html") return handleExportHtml(request, env);
-                if (path.startsWith("/api/images/")) return handleGetImage(request, env);
-            } else if (request.method === "POST") {
-                if (path === "/api/config") return handleUpdateConfig(request, env);
-                if (path === "/api/upload") return handleUpload(request, env);
-                if (path === "/api/order/update") return handleUpdateOrder(request, env);
-                if (path === "/api/order/delete") return handleDeleteOrder(request, env);
-            }
-            return new Response("API Not Found", { status: 404 });
-        }
-
-        return new Response("Not Found", { status: 404 });
+        return new Response("API Not Found", { status: 404 });
     }
-};
+
+    return new Response("Not Found", { status: 404 });
+}
