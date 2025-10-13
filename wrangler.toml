@@ -1,9 +1,5 @@
-name = "order-management-cloudflare"
-main = "index.js"
+name = "order-management-cloudflare-pages"
 compatibility_date = "2024-05-18"
-
-[site]
-bucket = "./"
 
 [[r2_buckets]]
 binding = "R2_BUCKET"

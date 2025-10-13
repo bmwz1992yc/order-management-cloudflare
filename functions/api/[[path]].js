@@ -1,7 +1,5 @@
-import indexHtml from "./index.html";
-
 /**
- * Worker 主代码：订单管理系统后端
+ * Pages Function: 订单管理系统后端
  * 绑定了 R2 存储桶 R2_BUCKET
  */
 
@@ -566,35 +564,31 @@ async function handleGetImage(request, env) {
     }
 }
 
-// --- Worker 入口与路由 ---
+// --- Pages Function 入口与路由 ---
 
-export default {
-    async fetch(request, env, ctx) {
-        const url = new URL(request.url);
+export async function onRequest(context) {
+    const { request, env } = context;
+    const url = new URL(request.url);
 
-        if (url.pathname === "/") {
-            return new Response(indexHtml, {
-                headers: { "Content-Type": "text/html;charset=UTF-8" },
-            });
+    if (url.pathname.startsWith("/api/")) {
+        const path = url.pathname;
+        if (request.method === "GET") {
+            if (path === "/api/config") return handleGetConfig(env);
+            if (path === "/api/orders") return handleGetOrders(env);
+            if (path === "/api/export") return handleExportOrders(request, env);
+            if (path === "/api/export-html") return handleExportHtml(request, env);
+            if (path.startsWith("/api/images/")) return handleGetImage(request, env);
+        } else if (request.method === "POST") {
+            if (path === "/api/config") return handleUpdateConfig(request, env);
+            if (path === "/api/upload") return handleUpload(request, env);
+            if (path === "/api/order/update") return handleUpdateOrder(request, env);
+            if (path === "/api/order/delete") return handleDeleteOrder(request, env);
         }
-
-        if (url.pathname.startsWith("/api/")) {
-            const path = url.pathname;
-            if (request.method === "GET") {
-                if (path === "/api/config") return handleGetConfig(env);
-                if (path === "/api/orders") return handleGetOrders(env);
-                if (path === "/api/export") return handleExportOrders(request, env);
-                if (path === "/api/export-html") return handleExportHtml(request, env);
-                if (path.startsWith("/api/images/")) return handleGetImage(request, env);
-            } else if (request.method === "POST") {
-                if (path === "/api/config") return handleUpdateConfig(request, env);
-                if (path === "/api/upload") return handleUpload(request, env);
-                if (path === "/api/order/update") return handleUpdateOrder(request, env);
-                if (path === "/api/order/delete") return handleDeleteOrder(request, env);
-            }
-            return new Response("API Not Found", { status: 404 });
-        }
-
-        return new Response("Not Found", { status: 404 });
+        return new Response("API Not Found", { status: 404 });
     }
-};
+
+    // For Pages, we don't need to serve static assets here.
+    // If the request is not for the API, Pages will automatically serve the static file.
+    // We can return a 404 from the function as a fallback.
+    return new Response("Not Found", { status: 404 });
+}
