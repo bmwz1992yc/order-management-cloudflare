@@ -1,13 +1,12 @@
-import indexHtml from "./index.html";
-
 /**
- * Worker 主代码：订单管理系统后端
+ * Pages Function: 订单管理系统后端
  * 绑定了 R2 存储桶 R2_BUCKET
  */
 
 // --- 常量定义 ---
 const DATA_KEY = "orders/orders_data.json"; // 存储订单数据的主文件
 const CONFIG_KEY = "system/config.json"; // 存储 API 配置的文件
+const PASSWORD_KEY = "system/password.json"; // 存储密码的文件
 const IMAGE_PREFIX = "images/"; // R2 中图片存储前缀
 
 // --- 辅助函数 ---
@@ -375,6 +374,41 @@ async function handleDeleteOrder(request, env) {
     }
 }
 
+/** POST /api/verify-password: 验证密码 */
+async function handleVerifyPassword(request, env) {
+    try {
+        // 1. Get or create the password in R2
+        let storedPasswordData = await getR2Json(env, PASSWORD_KEY);
+        if (!storedPasswordData || !storedPasswordData.password) {
+            const defaultPassword = { password: "11223344" };
+            await putR2Json(env, PASSWORD_KEY, defaultPassword);
+            storedPasswordData = defaultPassword;
+        }
+        const correctPassword = storedPasswordData.password;
+
+        // 2. Get the password from the request body
+        const { password: submittedPassword } = await request.json();
+        if (typeof submittedPassword !== 'string') {
+             return new Response(JSON.stringify({ success: false, error: "密码格式不正确" }), { status: 400 });
+        }
+
+        // 3. Compare passwords
+        const success = submittedPassword === correctPassword;
+
+        // 4. Return result
+        return new Response(JSON.stringify({ success }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+        });
+
+    } catch (e) {
+        console.error("验证密码失败:", e.stack);
+        return new Response(JSON.stringify({ success: false, error: "服务器内部错误" }), {
+            status: 500
+        });
+    }
+}
+
 
 // --- 其他 API 路由 ---
 
@@ -566,35 +600,32 @@ async function handleGetImage(request, env) {
     }
 }
 
-// --- Worker 入口与路由 ---
+// --- Pages Function 入口与路由 ---
 
-export default {
-    async fetch(request, env, ctx) {
-        const url = new URL(request.url);
+export async function onRequest(context) {
+    const { request, env } = context;
+    const url = new URL(request.url);
 
-        if (url.pathname === "/") {
-            return new Response(indexHtml, {
-                headers: { "Content-Type": "text/html;charset=UTF-8" },
-            });
+    if (url.pathname.startsWith("/api/")) {
+        const path = url.pathname;
+        if (request.method === "GET") {
+            if (path === "/api/config") return handleGetConfig(env);
+            if (path === "/api/orders") return handleGetOrders(env);
+            if (path === "/api/export") return handleExportOrders(request, env);
+            if (path === "/api/export-html") return handleExportHtml(request, env);
+            if (path.startsWith("/api/images/")) return handleGetImage(request, env);
+        } else if (request.method === "POST") {
+            if (path === "/api/config") return handleUpdateConfig(request, env);
+            if (path === "/api/upload") return handleUpload(request, env);
+            if (path === "/api/order/update") return handleUpdateOrder(request, env);
+            if (path === "/api/order/delete") return handleDeleteOrder(request, env);
+                if (path === "/api/verify-password") return handleVerifyPassword(request, env);
         }
-
-        if (url.pathname.startsWith("/api/")) {
-            const path = url.pathname;
-            if (request.method === "GET") {
-                if (path === "/api/config") return handleGetConfig(env);
-                if (path === "/api/orders") return handleGetOrders(env);
-                if (path === "/api/export") return handleExportOrders(request, env);
-                if (path === "/api/export-html") return handleExportHtml(request, env);
-                if (path.startsWith("/api/images/")) return handleGetImage(request, env);
-            } else if (request.method === "POST") {
-                if (path === "/api/config") return handleUpdateConfig(request, env);
-                if (path === "/api/upload") return handleUpload(request, env);
-                if (path === "/api/order/update") return handleUpdateOrder(request, env);
-                if (path === "/api/order/delete") return handleDeleteOrder(request, env);
-            }
-            return new Response("API Not Found", { status: 404 });
-        }
-
-        return new Response("Not Found", { status: 404 });
+        return new Response("API Not Found", { status: 404 });
     }
-};
+
+    // For Pages, we don't need to serve static assets here.
+    // If the request is not for the API, Pages will automatically serve the static file.
+    // We can return a 404 from the function as a fallback.
+    return new Response("Not Found", { status: 404 });
+}
