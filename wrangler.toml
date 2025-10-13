@@ -1,5 +1,6 @@
 name = "order-management-cloudflare-pages"
 compatibility_date = "2024-05-18"
+pages_build_output_dir = "."
 
 [[r2_buckets]]
 binding = "R2_BUCKET"
