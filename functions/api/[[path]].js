@@ -88,14 +88,11 @@ async function handleUpdateConfig(request, env) {
             }
         };
         
-        // Always start with a deep copy of the defaultConfig to ensure the structure is present
         let currentConfig = JSON.parse(JSON.stringify(defaultConfig));
 
-        // Get existing config from R2 (could be old format or new)
         const existingR2Config = await getR2Json(env, CONFIG_KEY, null);
 
         if (existingR2Config) {
-            // If existingR2Config is an old flat structure, migrate its values into currentConfig
             if (!existingR2Config.providers) {
                 if (existingR2Config.api_provider && currentConfig.providers[existingR2Config.api_provider]) {
                     Object.assign(currentConfig.providers[existingR2Config.api_provider], {
@@ -106,19 +103,16 @@ async function handleUpdateConfig(request, env) {
                     currentConfig.active_provider = existingR2Config.api_provider;
                 }
             } else {
-                // If existingR2Config has the new structure, merge its values into currentConfig
                 currentConfig.active_provider = existingR2Config.active_provider || currentConfig.active_provider;
                 for (const providerKey in existingR2Config.providers) {
-                    if (currentConfig.providers[providerKey]) { // Only merge if the provider is known in defaultConfig
+                    if (currentConfig.providers[providerKey]) {
                         Object.assign(currentConfig.providers[providerKey], existingR2Config.providers[providerKey]);
                     }
                 }
             }
         }
 
-        // Now currentConfig is guaranteed to have the correct structure and existing values merged.
-        // Apply updates from the request.
-        currentConfig.active_provider = active_provider; // This comes from the frontend selection
+        currentConfig.active_provider = active_provider;
 
         const providerConf = currentConfig.providers[active_provider];
         if (providerConf) {
@@ -128,7 +122,7 @@ async function handleUpdateConfig(request, env) {
             if (config_data.model_name) {
                 providerConf.model_name = config_data.model_name;
             }
-            if (config_data.api_key) { // Only update API key if a new one is provided (not empty string from input)
+            if (config_data.api_key) {
                 providerConf.api_key = config_data.api_key;
             }
         }
@@ -153,7 +147,6 @@ async function handleUpload(request, env) {
     let existingOrders;
 
     try {
-        // 1. Fetch shared resources once
         const config = await getR2Json(env, CONFIG_KEY, {});
         existingOrders = await getR2Json(env, DATA_KEY, []);
 
@@ -183,7 +176,6 @@ async function handleUpload(request, env) {
             return new Response(JSON.stringify({ error: "未接收到任何图片文件" }), { status: 400 });
         }
 
-        // 2. Process each file individually
         for (const imageFile of imageFiles) {
             if (!imageFile || imageFile.size === 0) {
                 results.push({ success: false, filename: imageFile.name || 'unknown', error: "空文件或无效文件" });
@@ -237,7 +229,6 @@ async function handleUpload(request, env) {
                 }
                 const orderData = JSON.parse(extractedJson);
 
-                // --- Order ID Generation (in-memory) ---
                 const orderDate = orderData.order_date || new Date().toISOString().substring(0, 10);
                 const datePrefix = orderDate.replace(/-/g, '');
                 let maxSeq = 0;
@@ -249,7 +240,6 @@ async function handleUpload(request, env) {
                 });
                 const newSeq = maxSeq + 1;
                 const orderId = `${datePrefix}-${String(newSeq).padStart(2, '0')}`;
-                // --- End ID Generation ---
 
                 const imageR2Key = `${IMAGE_PREFIX}${orderId}-${imageFile.name}`;
                 await env.R2_BUCKET.put(imageR2Key, arrayBuffer, { httpMetadata: { contentType: imageContentType } });
@@ -264,7 +254,7 @@ async function handleUpload(request, env) {
                     image_r2_key: imageR2Key
                 };
 
-                existingOrders.push(newRecord); // Add to in-memory list for next ID calculation
+                existingOrders.push(newRecord);
                 results.push({ success: true, filename: imageFile.name, data: newRecord });
 
             } catch (e) {
@@ -273,7 +263,6 @@ async function handleUpload(request, env) {
             }
         }
 
-        // 3. Save all successful orders at once
         if (results.some(r => r.success)) {
             await putR2Json(env, DATA_KEY, existingOrders);
         }
@@ -284,7 +273,6 @@ async function handleUpload(request, env) {
         });
 
     } catch (e) {
-        // This catches initial setup errors (e.g., loading config)
         console.error("处理订单失败:", e.stack);
         return new Response(JSON.stringify({ error: "处理订单失败", details: e.message }), {
             status: 500
@@ -374,11 +362,9 @@ async function handleDeleteOrder(request, env) {
     }
 }
 
-
 /** POST /api/verify-password: 验证密码 */
 async function handleVerifyPassword(request, env) {
     try {
-        // 1. Get or create the password in R2
         let storedPasswordData = await getR2Json(env, PASSWORD_KEY);
         if (!storedPasswordData || !storedPasswordData.password) {
             const defaultPassword = { password: "11223344" };
@@ -387,16 +373,13 @@ async function handleVerifyPassword(request, env) {
         }
         const correctPassword = storedPasswordData.password;
 
-        // 2. Get the password from the request body
         const { password: submittedPassword } = await request.json();
         if (typeof submittedPassword !== 'string') {
              return new Response(JSON.stringify({ success: false, error: "密码格式不正确" }), { status: 400 });
         }
 
-        // 3. Compare passwords
         const success = submittedPassword === correctPassword;
 
-        // 4. Return result
         return new Response(JSON.stringify({ success }), {
             status: 200,
             headers: { "Content-Type": "application/json" }
@@ -409,10 +392,6 @@ async function handleVerifyPassword(request, env) {
         });
     }
 }
-
-
-
-// --- 其他 API 路由 ---
 
 /** GET /api/orders: 获取所有订单数据 */
 async function handleGetOrders(env) {
@@ -483,7 +462,6 @@ async function handleExportHtml(request, env) {
     const baseUrl = `${protocol}//${host}`;
     let allOrders = await getR2Json(env, DATA_KEY, []);
 
-    // Filtering logic
     const selectedCustomers = searchParams.getAll('customer');
     if (selectedCustomers.length > 0) {
         allOrders = allOrders.filter(order => selectedCustomers.includes(order.customer_name));
@@ -602,7 +580,6 @@ async function handleGetImage(request, env) {
     }
 }
 
-// --- Pages Function 入口与路由 ---
 
 export async function onRequest(context) {
     const { request, env } = context;
@@ -621,13 +598,10 @@ export async function onRequest(context) {
             if (path === "/api/upload") return handleUpload(request, env);
             if (path === "/api/order/update") return handleUpdateOrder(request, env);
             if (path === "/api/order/delete") return handleDeleteOrder(request, env);
-                if (path === "/api/verify-password") return handleVerifyPassword(request, env);
+            if (path === "/api/verify-password") return handleVerifyPassword(request, env);
         }
         return new Response("API Not Found", { status: 404 });
     }
 
-    // For Pages, we don't need to serve static assets here.
-    // If the request is not for the API, Pages will automatically serve the static file.
-    // We can return a 404 from the function as a fallback.
     return new Response("Not Found", { status: 404 });
 }
