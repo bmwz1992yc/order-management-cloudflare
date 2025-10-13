@@ -121,6 +121,79 @@
             margin-top: 10px;
             min-height: 1.2em;
         }
+
+        @media screen and (max-width: 768px) {
+            table, thead, tbody, th, td, tr {
+                display: block;
+            }
+
+            thead tr {
+                position: absolute;
+                top: -9999px;
+                left: -9999px;
+            }
+
+            tr { border: 1px solid #ccc; margin-bottom: 10px; }
+
+            td {
+                border: none;
+                border-bottom: 1px solid #eee;
+                position: relative;
+                padding-left: 40% !important;
+                white-space: normal;
+                text-align: left;
+                min-height: 30px;
+                line-height: 30px;
+            }
+
+            td:before {
+                position: absolute;
+                top: 0;
+                left: 6px;
+                width: 35%;
+                padding-right: 10px;
+                white-space: nowrap;
+                text-align: left;
+                font-weight: bold;
+                line-height: 30px;
+            }
+
+            #ordersTable td:empty {
+                display: none;
+            }
+
+            #ordersTable > tbody > tr > td:nth-of-type(1):before { content: "订单 ID"; }
+            #ordersTable > tbody > tr > td:nth-of-type(2):before { content: "客户名称"; }
+            #ordersTable > tbody > tr > td:nth-of-type(3):before { content: "货物名称"; }
+            #ordersTable > tbody > tr > td:nth-of-type(4):before { content: "单位"; }
+            #ordersTable > tbody > tr > td:nth-of-type(5):before { content: "数量"; }
+            #ordersTable > tbody > tr > td:nth-of-type(6):before { content: "单价"; }
+            #ordersTable > tbody > tr > td:nth-of-type(7):before { content: "金额"; }
+            #ordersTable > tbody > tr > td:nth-of-type(8):before { content: "订单总额"; }
+            #ordersTable > tbody > tr > td:nth-of-type(9):before { content: "订单日期"; }
+            #ordersTable > tbody > tr > td:nth-of-type(10):before { content: "上传时间"; }
+            #ordersTable > tbody > tr > td:nth-of-type(11):before { content: "订单图片"; }
+            #ordersTable > tbody > tr > td:nth-of-type(12):before { content: "操作"; }
+
+            td[rowspan] {
+                display: none;
+            }
+
+            .col-order-id, .col-upload-time, .col-order-image, .col-item-detail, .col-medium, .col-small-medium {
+                width: auto;
+            }
+
+            #controls {
+                flex-direction: column;
+            }
+            .control-group {
+                width: 100%;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+        }
     </style>
 </head>
 <body>
