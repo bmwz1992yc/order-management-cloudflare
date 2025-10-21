@@ -141,6 +141,47 @@ async function handleUpdateConfig(request, env) {
     }
 }
 
+async function handleGetUsers(env) {
+    const storedPasswordData = await getR2Json(env, PASSWORD_KEY, { users: [] });
+    return new Response(JSON.stringify(storedPasswordData.users), {
+        headers: { "Content-Type": "application/json" }
+    });
+}
+
+async function handleAddUser(request, env) {
+    try {
+        const { password, role } = await request.json();
+        if (!password || !role) {
+            return new Response(JSON.stringify({ error: "Missing password or role" }), { status: 400 });
+        }
+
+        const storedPasswordData = await getR2Json(env, PASSWORD_KEY, { users: [] });
+        storedPasswordData.users.push({ password, role });
+        await putR2Json(env, PASSWORD_KEY, storedPasswordData);
+
+        return new Response(JSON.stringify({ message: "User added successfully" }), { status: 201 });
+    } catch (e) {
+        return new Response(JSON.stringify({ error: "Failed to add user", details: e.message }), { status: 500 });
+    }
+}
+
+async function handleDeleteUser(request, env) {
+    try {
+        const { password } = await request.json();
+        if (!password) {
+            return new Response(JSON.stringify({ error: "Missing password" }), { status: 400 });
+        }
+
+        const storedPasswordData = await getR2Json(env, PASSWORD_KEY, { users: [] });
+        storedPasswordData.users = storedPasswordData.users.filter(u => u.password !== password);
+        await putR2Json(env, PASSWORD_KEY, storedPasswordData);
+
+        return new Response(JSON.stringify({ message: "User deleted successfully" }), { status: 200 });
+    } catch (e) {
+        return new Response(JSON.stringify({ error: "Failed to delete user", details: e.message }), { status: 500 });
+    }
+}
+
 /** POST /api/upload: 上传图片并识别订单信息 */
 async function handleUpload(request, env) {
     const results = [];
@@ -299,16 +340,8 @@ async function handleUpdateOrder(request, env) {
         const orderToUpdate = allOrders[orderIndex];
         const numericFields = ['quantity', 'unit_price', 'amount', 'total_amount'];
 
-        if (field === "items" && item_index != null && item_field) {
-            if (orderToUpdate.items && orderToUpdate.items[item_index]) {
-                let finalValue = value;
-                if (numericFields.includes(item_field)) {
-                    finalValue = parseFloat(value) || 0;
-                }
-                orderToUpdate.items[item_index][item_field] = finalValue;
-            } else {
-                return new Response(JSON.stringify({ error: "找不到指定的货物索引" }), { status: 400 });
-            }
+        if (field === "items") {
+            orderToUpdate.items = value;
         } else {
             let finalValue = value;
             if (numericFields.includes(field)) {
@@ -366,24 +399,29 @@ async function handleDeleteOrder(request, env) {
 async function handleVerifyPassword(request, env) {
     try {
         let storedPasswordData = await getR2Json(env, PASSWORD_KEY);
-        if (!storedPasswordData || !storedPasswordData.password) {
-            const defaultPassword = { password: "11223344" };
+
+        // Migration from old format or creation of default
+        if (!storedPasswordData || !storedPasswordData.users) {
+            const defaultPassword = { users: [{ password: "11223344", role: "admin" }] };
             await putR2Json(env, PASSWORD_KEY, defaultPassword);
             storedPasswordData = defaultPassword;
         }
-        const correctPassword = storedPasswordData.password;
 
         const { password: submittedPassword } = await request.json();
         if (typeof submittedPassword !== 'string') {
-             return new Response(JSON.stringify({ success: false, error: "密码格式不正确" }), { status: 400 });
+            return new Response(JSON.stringify({ success: false, error: "密码格式不正确" }), { status: 400 });
         }
 
-        const success = submittedPassword === correctPassword;
+        const user = storedPasswordData.users.find(u => u.password === submittedPassword);
 
-        return new Response(JSON.stringify({ success }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" }
-        });
+        if (user) {
+            return new Response(JSON.stringify({ success: true, role: user.role }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" }
+            });
+        } else {
+            return new Response(JSON.stringify({ success: false, error: "密码错误" }), { status: 401 });
+        }
 
     } catch (e) {
         console.error("验证密码失败:", e.stack);
@@ -580,6 +618,53 @@ async function handleGetImage(request, env) {
     }
 }
 
+async function handlePostProgress(request, env) {
+    try {
+        const formData = await request.formData();
+        const order_id = formData.get('order_id');
+        const update = formData.get('update');
+        const attachment = formData.get('attachment');
+
+        if (!order_id || !update) {
+            return new Response(JSON.stringify({ error: "Missing order_id or update" }), { status: 400 });
+        }
+
+        const allOrders = await getR2Json(env, DATA_KEY, []);
+        const orderIndex = allOrders.findIndex(o => o.order_id === order_id);
+
+        if (orderIndex === -1) {
+            return new Response(JSON.stringify({ error: "Order not found" }), { status: 404 });
+        }
+
+        const orderToUpdate = allOrders[orderIndex];
+        if (!orderToUpdate.progress_updates) {
+            orderToUpdate.progress_updates = [];
+        }
+
+        const newProgress = {
+            timestamp: new Date().toISOString(),
+            update: update,
+        };
+
+        if (attachment && attachment.size > 0) {
+            const attachmentKey = `${IMAGE_PREFIX}${order_id}-progress-${Date.now()}-${attachment.name}`;
+            await env.R2_BUCKET.put(attachmentKey, await attachment.arrayBuffer(), {
+                httpMetadata: { contentType: attachment.type },
+            });
+            newProgress.attachment = attachmentKey;
+            newProgress.attachment_type = attachment.type;
+        }
+
+        orderToUpdate.progress_updates.push(newProgress);
+        await putR2Json(env, DATA_KEY, allOrders);
+
+        return new Response(JSON.stringify({ message: "Progress added successfully" }), { status: 200 });
+
+    } catch (e) {
+        console.error("Failed to add progress:", e.stack);
+        return new Response(JSON.stringify({ error: "Failed to add progress", details: e.message }), { status: 500 });
+    }
+}
 
 export async function onRequest(context) {
     const { request, env } = context;
@@ -593,12 +678,17 @@ export async function onRequest(context) {
             if (path === "/api/export") return handleExportOrders(request, env);
             if (path === "/api/export-html") return handleExportHtml(request, env);
             if (path.startsWith("/api/images/")) return handleGetImage(request, env);
+            if (path === "/api/users") return handleGetUsers(env);
         } else if (request.method === "POST") {
             if (path === "/api/config") return handleUpdateConfig(request, env);
             if (path === "/api/upload") return handleUpload(request, env);
             if (path === "/api/order/update") return handleUpdateOrder(request, env);
+            if (path === "/api/order/progress") return handlePostProgress(request, env);
             if (path === "/api/order/delete") return handleDeleteOrder(request, env);
             if (path === "/api/verify-password") return handleVerifyPassword(request, env);
+            if (path === "/api/users") return handleAddUser(request, env);
+        } else if (request.method === "DELETE") {
+            if (path === "/api/users") return handleDeleteUser(request, env);
         }
         return new Response("API Not Found", { status: 404 });
     }

@@ -15,6 +15,8 @@
         button:hover { background-color: #0056b3; }
         .delete-btn { background-color: #dc3545; }
         .delete-btn:hover { background-color: #c82333; }
+        .edit-btn { background-color: #ffc107; }
+        .edit-btn:hover { background-color: #e0a800; }
         #resetFilters { background-color: #6c757d; }
         #resetFilters:hover { background-color: #5a6268; }
         .config-form { border: 1px solid #ddd; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
@@ -121,6 +123,43 @@
             margin-top: 10px;
             min-height: 1.2em;
         }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 5% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 700px;
+            border-radius: 8px;
+        }
+
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -165,8 +204,27 @@
         </div>
     </div>
 
+    <div id="user-management-section" class="hidden">
+        <h2 id="toggle-users" style="cursor: pointer;">▶ 用户管理</h2>
+        <div id="users-content" class="hidden">
+            <div class="config-form">
+                <form id="users-form">
+                    <div id="users-list"></div>
+                    <input type="password" id="new-user-password" placeholder="新用户密码">
+                    <select id="new-user-role">
+                        <option value="user">普通用户</option>
+                        <option value="admin">管理员</option>
+                    </select>
+                    <button type="button" id="add-user-btn">添加用户</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div id="statusMessage" class="message hidden"></div>
 
+    <h2 id="toggle-handover" style="cursor: pointer;">▼ 当前交接物品</h2>
+    <div id="upload-section">
     <h2>订单上传与识别</h2>
     <form id="uploadForm">
         <label for="orderImages">上传手写订单照片 (兼容手机拍照)</label>
@@ -258,11 +316,45 @@
     </table>
 
     <div id="totalAmountDisplay" style="margin-top: 15px; font-weight: bold; font-size: 1.1em;"></div>
+    </div>
 </div>
 
 <div id="image-lightbox" onclick="this.style.display='none'">
     <span id="image-lightbox-close">&times;</span>
     <img src="" onclick="event.stopPropagation()">
+</div>
+
+<div id="edit-order-modal" class="modal">
+    <div class="modal-content">
+        <span class="close-button">&times;</span>
+        <h2>编辑订单</h2>
+        <form id="edit-order-form">
+            <input type="hidden" id="edit-order-id">
+            <label for="edit-customer-name">客户名称</label>
+            <input type="text" id="edit-customer-name" required>
+
+            <h3>货物详情</h3>
+            <div id="edit-items-container"></div>
+            <button type="button" id="add-item-btn">添加货物</button>
+
+            <label for="edit-total-amount">订单总额</label>
+            <input type="number" id="edit-total-amount" required step="0.01">
+
+            <label for="edit-order-date">订单日期</label>
+            <input type="date" id="edit-order-date" required>
+
+            <hr>
+            <h3>进度更新</h3>
+            <div id="progress-updates-container"></div>
+            <textarea id="new-progress-update" placeholder="添加新的进度..."></textarea>
+            <label for="progress-attachment">附件</label>
+            <input type="file" id="progress-attachment">
+            <button type="button" id="add-progress-btn">添加进度</button>
+
+            <hr>
+            <button type="submit">保存更改</button>
+        </form>
+    </div>
 </div>
 
 <script>
@@ -298,6 +390,13 @@
         const toggle = document.getElementById('toggleConfig');
         const isHidden = content.classList.toggle('hidden');
         toggle.textContent = isHidden ? '▶ 大模型 API 配置' : '▼ 大模型 API 配置';
+    });
+
+    document.getElementById('toggle-handover').addEventListener('click', () => {
+        const content = document.getElementById('upload-section');
+        const toggle = document.getElementById('toggle-handover');
+        const isHidden = content.classList.toggle('hidden');
+        toggle.textContent = isHidden ? '▶ 当前交接物品' : '▼ 当前交接物品';
     });
 
     apiProviderSelect.addEventListener('change', () => {
@@ -449,6 +548,24 @@
             if (confirm(`确定要删除订单 ${orderId} 吗？此操作不可撤销。`)) {
                 deleteOrder(orderId);
             }
+            return;
+        }
+
+        const editButton = e.target.closest('.edit-btn');
+        if (editButton) {
+            const orderId = editButton.dataset.orderId;
+            openEditModal(orderId);
+        }
+    });
+
+    document.querySelector('#edit-order-modal .close-button').addEventListener('click', () => {
+        document.getElementById('edit-order-modal').style.display = 'none';
+    });
+
+    window.addEventListener('click', (event) => {
+        const modal = document.getElementById('edit-order-modal');
+        if (event.target == modal) {
+            modal.style.display = 'none';
         }
     });
 
@@ -683,11 +800,22 @@
                                 }
                                 break;
                             case 'actions':
+                                const actionsContainer = document.createElement('div');
+                                actionsContainer.className = 'actions-container';
+
+                                const editButton = document.createElement('button');
+                                editButton.textContent = '修改';
+                                editButton.className = 'edit-btn';
+                                editButton.dataset.orderId = order.order_id;
+                                actionsContainer.appendChild(editButton);
+
                                 const deleteButton = document.createElement('button');
                                 deleteButton.textContent = '删除';
                                 deleteButton.className = 'delete-btn';
                                 deleteButton.dataset.orderId = order.order_id;
-                                cell.appendChild(deleteButton);
+                                actionsContainer.appendChild(deleteButton);
+
+                                cell.appendChild(actionsContainer);
                                 break;
                         }
                     });
@@ -774,6 +902,147 @@
         window.open(`/api/export-html?${queryString}`, '_blank');
     }
 
+    function openEditModal(orderId) {
+        const order = allOrders.find(o => o.order_id === orderId);
+        if (!order) return;
+
+        document.getElementById('edit-order-id').value = order.order_id;
+        document.getElementById('edit-customer-name').value = order.customer_name;
+        document.getElementById('edit-total-amount').value = order.total_amount;
+        document.getElementById('edit-order-date').value = order.order_date;
+
+        const itemsContainer = document.getElementById('edit-items-container');
+        itemsContainer.innerHTML = '';
+        order.items.forEach((item, index) => {
+            const itemDiv = document.createElement('div');
+            itemDiv.innerHTML = `
+                <input type="text" value="${item.name}" data-item-index="${index}" data-item-field="name" placeholder="货物名称">
+                <input type="text" value="${item.unit}" data-item-index="${index}" data-item-field="unit" placeholder="单位">
+                <input type="number" value="${item.quantity}" data-item-index="${index}" data-item-field="quantity" placeholder="数量">
+                <input type="number" value="${item.unit_price}" data-item-index="${index}" data-item-field="unit_price" placeholder="单价">
+                <input type="number" value="${item.amount}" data-item-index="${index}" data-item-field="amount" placeholder="金额">
+                <button type="button" class="remove-item-btn" data-item-index="${index}">移除</button>
+            `;
+            itemsContainer.appendChild(itemDiv);
+        });
+
+        const progressContainer = document.getElementById('progress-updates-container');
+        progressContainer.innerHTML = '';
+        if (order.progress_updates) {
+            order.progress_updates.forEach(update => {
+                const progressDiv = document.createElement('div');
+                progressDiv.innerHTML = `<p>${update.timestamp}: ${update.update}</p>`;
+                if (update.attachment) {
+                    if (update.attachment_type && update.attachment_type.startsWith('image/')) {
+                        progressDiv.innerHTML += `<img src="/api/images/${update.attachment}" style="max-width: 200px;">`;
+                    } else {
+                        progressDiv.innerHTML += `<a href="/api/images/${update.attachment}" target="_blank">下载附件</a>`;
+                    }
+                }
+                progressContainer.appendChild(progressDiv);
+            });
+        }
+
+        document.getElementById('edit-order-modal').style.display = 'block';
+    }
+
+    document.getElementById('add-item-btn').addEventListener('click', () => {
+        const itemsContainer = document.getElementById('edit-items-container');
+        const newItemIndex = itemsContainer.children.length;
+        const itemDiv = document.createElement('div');
+        itemDiv.innerHTML = `
+            <input type="text" data-item-index="${newItemIndex}" data-item-field="name" placeholder="货物名称">
+            <input type="text" data-item-index="${newItemIndex}" data-item-field="unit" placeholder="单位">
+            <input type="number" data-item-index="${newItemIndex}" data-item-field="quantity" placeholder="数量">
+            <input type="number" data-item-index="${newItemIndex}" data-item-field="unit_price" placeholder="单价">
+            <input type="number" data-item-index="${newItemIndex}" data-item-field="amount" placeholder="金额">
+            <button type="button" class="remove-item-btn" data-item-index="${newItemIndex}">移除</button>
+        `;
+        itemsContainer.appendChild(itemDiv);
+    });
+
+    document.getElementById('edit-items-container').addEventListener('click', (e) => {
+        if (e.target.classList.contains('remove-item-btn')) {
+            e.target.parentElement.remove();
+        }
+    });
+
+    document.getElementById('edit-order-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+
+        const orderId = document.getElementById('edit-order-id').value;
+        const items = [];
+        document.querySelectorAll('#edit-items-container > div').forEach((itemDiv, index) => {
+            const item = {
+                name: itemDiv.querySelector('[data-item-field="name"]').value,
+                unit: itemDiv.querySelector('[data-item-field="unit"]').value,
+                quantity: parseFloat(itemDiv.querySelector('[data-item-field="quantity"]').value),
+                unit_price: parseFloat(itemDiv.querySelector('[data-item-field="unit_price"]').value),
+                amount: parseFloat(itemDiv.querySelector('[data-item-field="amount"]').value)
+            };
+            items.push(item);
+        });
+
+        const updatedOrder = {
+            order_id: orderId,
+            customer_name: document.getElementById('edit-customer-name').value,
+            total_amount: parseFloat(document.getElementById('edit-total-amount').value),
+            order_date: document.getElementById('edit-order-date').value,
+            items: items
+        };
+
+        try {
+            await updateOrderData(orderId, 'customer_name', updatedOrder.customer_name);
+            await updateOrderData(orderId, 'total_amount', updatedOrder.total_amount);
+            await updateOrderData(orderId, 'order_date', updatedOrder.order_date);
+            await updateOrderData(orderId, 'items', updatedOrder.items);
+
+            showMessage('订单更新成功!', 'success');
+            document.getElementById('edit-order-modal').style.display = 'none';
+            fetchOrders();
+        } catch (error) {
+            showMessage(`更新失败: ${error.message}`, 'error');
+        }
+    });
+
+    document.getElementById('add-progress-btn').addEventListener('click', async () => {
+        const orderId = document.getElementById('edit-order-id').value;
+        const updateText = document.getElementById('new-progress-update').value;
+        const attachmentFile = document.getElementById('progress-attachment').files[0];
+
+        if (!updateText) {
+            showMessage('请输入进度更新内容。', 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('order_id', orderId);
+        formData.append('update', updateText);
+        if (attachmentFile) {
+            formData.append('attachment', attachmentFile);
+        }
+
+        try {
+            const response = await fetch('/api/order/progress', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const result = await response.json();
+                throw new Error(result.details || result.error || '添加进度失败');
+            }
+
+            showMessage('进度添加成功!', 'success');
+            document.getElementById('new-progress-update').value = '';
+            document.getElementById('progress-attachment').value = '';
+            fetchOrders();
+            openEditModal(orderId);
+        } catch (error) {
+            showMessage(`添加进度失败: ${error.message}`, 'error');
+        }
+    });
+
     // --- Password Verification Logic ---
     const passwordOverlay = document.getElementById('password-overlay');
     const passwordForm = document.getElementById('password-form');
@@ -781,6 +1050,7 @@
     const passwordMessage = document.getElementById('password-message');
     const container = document.querySelector('.container');
     const AUTH_KEY = 'isAuthenticated';
+    const ROLE_KEY = 'userRole';
 
     function showMainContent() {
         passwordOverlay.style.display = 'none';
@@ -788,6 +1058,11 @@
         // Initialize the main application
         loadConfig();
         fetchOrders();
+
+        if (sessionStorage.getItem(ROLE_KEY) === 'admin') {
+            document.getElementById('user-management-section').classList.remove('hidden');
+            loadUsers();
+        }
     }
 
     passwordForm.addEventListener('submit', async (e) => {
@@ -806,6 +1081,7 @@
 
             if (response.ok && result.success) {
                 sessionStorage.setItem(AUTH_KEY, 'true');
+                sessionStorage.setItem(ROLE_KEY, result.role);
                 showMainContent();
             } else {
                 passwordMessage.textContent = '密码错误，请重试。';
@@ -824,6 +1100,77 @@
             passwordOverlay.style.display = 'flex';
         }
     };
+
+    document.getElementById('toggle-users').addEventListener('click', () => {
+        const content = document.getElementById('users-content');
+        const toggle = document.getElementById('toggle-users');
+        const isHidden = content.classList.toggle('hidden');
+        toggle.textContent = isHidden ? '▶ 用户管理' : '▼ 用户管理';
+    });
+
+    async function loadUsers() {
+        try {
+            const response = await fetch('/api/users');
+            if (!response.ok) throw new Error('Failed to load users');
+            const users = await response.json();
+            const usersList = document.getElementById('users-list');
+            usersList.innerHTML = '';
+            users.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.innerHTML = `
+                    <span>${user.role}</span>
+                    <button type="button" class="delete-user-btn" data-password="${user.password}">删除</button>
+                `;
+                usersList.appendChild(userDiv);
+            });
+        } catch (error) {
+            showMessage(`Failed to load users: ${error.message}`, 'error');
+        }
+    }
+
+    document.getElementById('add-user-btn').addEventListener('click', async () => {
+        const password = document.getElementById('new-user-password').value;
+        const role = document.getElementById('new-user-role').value;
+
+        if (!password) {
+            showMessage('Please enter a password for the new user.', 'error');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password, role })
+            });
+            if (!response.ok) throw new Error('Failed to add user');
+            showMessage('User added successfully!', 'success');
+            document.getElementById('new-user-password').value = '';
+            loadUsers();
+        } catch (error) {
+            showMessage(`Failed to add user: ${error.message}`, 'error');
+        }
+    });
+
+    document.getElementById('users-list').addEventListener('click', async (e) => {
+        if (e.target.classList.contains('delete-user-btn')) {
+            const password = e.target.dataset.password;
+            if (confirm('Are you sure you want to delete this user?')) {
+                try {
+                    const response = await fetch('/api/users', {
+                        method: 'DELETE',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ password })
+                    });
+                    if (!response.ok) throw new Error('Failed to delete user');
+                    showMessage('User deleted successfully!', 'success');
+                    loadUsers();
+                } catch (error) {
+                    showMessage(`Failed to delete user: ${error.message}`, 'error');
+                }
+            }
+        }
+    });
 </script>
 
 </body>
